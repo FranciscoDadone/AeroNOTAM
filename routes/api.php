@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\MetarController;
 use App\Http\Controllers\Api\NotamController;
+use App\Http\Controllers\Api\TafController;
 use App\Http\Controllers\Api\WhatsappTestController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -14,6 +15,7 @@ $notamRoutes = function () {
     Route::get('/notams', [NotamController::class, 'index']);
     Route::get('/notams/aerodromos', [NotamController::class, 'aerodromos']);
     Route::get('/metar', [MetarController::class, 'index']);
+    Route::get('/taf', [TafController::class, 'index']);
 
     // Runs the full bot pipeline — AI airport matching included — on arbitrary
     // input, so it stays off any publicly reachable environment.

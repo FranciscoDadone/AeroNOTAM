@@ -8,7 +8,7 @@ beforeEach(function () {
 });
 
 it('returns the metar for an aerodrome', function () {
-    fakeSmn();
+    fakeMetar();
 
     $this->getJson('/api/metar?aerodromo=EZE')
         ->assertOk()
@@ -19,7 +19,7 @@ it('returns the metar for an aerodrome', function () {
 });
 
 it('accepts an ICAO code just like the notam endpoint', function () {
-    fakeSmn();
+    fakeMetar();
 
     $this->getJson('/api/metar?aerodromo=SAEZ')
         ->assertOk()
@@ -27,7 +27,7 @@ it('accepts an ICAO code just like the notam endpoint', function () {
 });
 
 it('includes the spanish explanation alongside the raw report', function () {
-    fakeSmn();
+    fakeMetar();
 
     $response = $this->getJson('/api/metar?aerodromo=EZE')->assertOk();
 
@@ -37,7 +37,7 @@ it('includes the spanish explanation alongside the raw report', function () {
 });
 
 it('skips the explanation with decode=false', function () {
-    fakeSmn();
+    fakeMetar();
 
     $response = $this->getJson('/api/metar?aerodromo=EZE&decode=false')->assertOk();
 
@@ -47,7 +47,7 @@ it('skips the explanation with decode=false', function () {
 });
 
 it('requires an aerodrome', function () {
-    fakeSmn();
+    fakeMetar();
 
     $this->getJson('/api/metar')
         ->assertStatus(422)
@@ -55,7 +55,7 @@ it('requires an aerodrome', function () {
 });
 
 it('404s for an unknown aerodrome', function () {
-    fakeSmn();
+    fakeMetar();
 
     $this->getJson('/api/metar?aerodromo=ZZZ')
         ->assertNotFound()
@@ -69,7 +69,7 @@ it('404s for an unknown aerodrome', function () {
  * a 502 would invite a client to retry forever.
  */
 it('404s for an aerodrome with no ICAO code', function () {
-    fakeSmn();
+    fakeMetar();
 
     $this->getJson('/api/metar?aerodromo=AGR')
         ->assertNotFound()
@@ -79,7 +79,7 @@ it('404s for an aerodrome with no ICAO code', function () {
 });
 
 it('serves the relayed report when the SMN is blocking', function () {
-    fakeSmn(Http::response(smnFixture('challenge.html'), 403));
+    fakeMetar(Http::response(smnFixture('challenge.html'), 403));
 
     $this->getJson('/api/metar?aerodromo=EZE')
         ->assertOk()
@@ -88,7 +88,7 @@ it('serves the relayed report when the SMN is blocking', function () {
 });
 
 it('reports the source that answered', function () {
-    fakeSmn();
+    fakeMetar();
 
     $this->getJson('/api/metar?aerodromo=EZE')
         ->assertOk()
@@ -96,13 +96,13 @@ it('reports the source that answered', function () {
 });
 
 it('502s only when every source is unreachable', function () {
-    fakeSmn(Http::response('down', 503), Http::response('down', 503));
+    fakeMetar(Http::response('down', 503), Http::response('down', 503));
 
     $this->getJson('/api/metar?aerodromo=EZE')->assertStatus(502);
 });
 
 it('reports no observations rather than failing when the SMN has none', function () {
-    fakeSmn(Http::response(smnFixture('metar-empty.html')));
+    fakeMetar(Http::response(smnFixture('metar-empty.html')));
 
     $this->getJson('/api/metar?aerodromo=EZE')
         ->assertOk()
@@ -110,7 +110,7 @@ it('reports no observations rather than failing when the SMN has none', function
 });
 
 it('behaves identically on the versioned and unversioned paths', function () {
-    fakeSmn();
+    fakeMetar();
 
     $versioned = $this->getJson('/api/v1/metar?aerodromo=EZE')->assertOk();
     $legacy = $this->getJson('/api/metar?aerodromo=EZE')->assertOk();

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Ai\Agents\AirportMatcherAgent;
 use App\DataObjects\Metar;
 use App\DataObjects\Notam;
+use App\DataObjects\Taf;
 use App\Support\AirportResolver;
 use Illuminate\Support\Str;
 
@@ -30,17 +31,27 @@ class WhatsappBotService
      * Words that mean the user is asking about current weather rather than
      * NOTAMs. Matched against the accent-stripped message, so "presión" and
      * "presion" both hit.
-     *
-     * Forecast words ("pronóstico", "mañana") are deliberately absent: a METAR
-     * is an observation of what the weather is doing now, and answering a
-     * question about tomorrow with it would be confidently wrong. Those fall
-     * through to the NOTAM path, which at worst returns something the user can
-     * see is not what they asked for.
      */
     protected const METAR_KEYWORDS = [
         'metar', 'speci', 'clima', 'tiempo', 'meteorolog', 'viento', 'temperatura',
         'visibilidad', 'llueve', 'lluvia', 'niebla', 'nubes', 'nublado', 'presion',
         'qnh', 'techo', 'rafaga', 'humedad',
+    ];
+
+    /**
+     * Words that mean the user is asking what the weather is going to do, which
+     * is a TAF and not a METAR.
+     *
+     * These used to fall through to NOTAMs on purpose: a METAR is an
+     * observation of what the weather is doing now, and answering a question
+     * about tomorrow with one would be confidently wrong. Now that there is a
+     * forecast to answer with, they route here — and they are checked before
+     * the METAR words, because "cómo va a estar el tiempo mañana" contains both
+     * and the forecast is the honest reading of it.
+     */
+    protected const TAF_KEYWORDS = [
+        'pronostico', 'prevision', 'manana', 'proximas horas', 'mas tarde',
+        'va a llover', 'va a estar', 'va a haber', 'esta noche',
     ];
 
     public function __construct(
@@ -49,6 +60,8 @@ class WhatsappBotService
         protected AirportResolver $airports,
         protected MetarService $metarService,
         protected MetarEnricher $metarEnricher,
+        protected TafService $tafService,
+        protected TafEnricher $tafEnricher,
     ) {}
 
     /**
@@ -79,9 +92,45 @@ class WhatsappBotService
                 : $this->helpMessage()];
         }
 
-        return $this->asksForMetar($message)
-            ? $this->metarReply($indicator)
-            : $this->notamReply($indicator);
+        return match ($this->topic($message)) {
+            'taf' => $this->tafReply($indicator),
+            'metar' => $this->metarReply($indicator),
+            default => $this->notamReply($indicator),
+        };
+    }
+
+    /**
+     * What the message is actually asking for.
+     *
+     * "notam" wins outright when the word is there: someone who typed it knows
+     * what they want, and "hay notams para mañana en EZE" must not be answered
+     * with a forecast just because it mentions tomorrow.
+     */
+    protected function topic(string $message): string
+    {
+        $normalized = Str::ascii(mb_strtolower($message));
+
+        return match (true) {
+            str_contains($normalized, 'notam') => 'notam',
+            preg_match('/\btaf\b/', $normalized) === 1 => 'taf',
+            $this->mentions($normalized, self::TAF_KEYWORDS) => 'taf',
+            $this->mentions($normalized, self::METAR_KEYWORDS) => 'metar',
+            default => 'notam',
+        };
+    }
+
+    /**
+     * @param  array<int, string>  $keywords
+     */
+    protected function mentions(string $normalized, array $keywords): bool
+    {
+        foreach ($keywords as $keyword) {
+            if (str_contains($normalized, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -130,17 +179,85 @@ class WhatsappBotService
         return $this->formatMetars($name, $icao, $this->metarEnricher->enrich($metars));
     }
 
-    protected function asksForMetar(string $message): bool
+    /**
+     * @return array<int, string>
+     */
+    protected function tafReply(string $indicator): array
     {
-        $normalized = Str::ascii(mb_strtolower($message));
+        $name = $this->airports->nameFor($indicator) ?? $indicator;
+        $icao = $this->airports->icaoFor($indicator);
 
-        foreach (self::METAR_KEYWORDS as $keyword) {
-            if (str_contains($normalized, $keyword)) {
-                return true;
+        if ($icao === null) {
+            return ["*{$name}* ({$indicator}) no tiene código OACI, así que el SMN no publica TAF para ese aeródromo."];
+        }
+
+        try {
+            $tafs = $this->tafService->getTafs($icao);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return ['Encontré el aeropuerto pero no pude obtener su pronóstico TAF en este momento. Probá de nuevo en unos minutos.'];
+        }
+
+        return $this->formatTafs($name, $icao, $this->tafEnricher->enrich($tafs));
+    }
+
+    /**
+     * The forecast verbatim, then what it says in Spanish — same shape as the
+     * METAR reply, and for the same reason: the raw TAF is the form a pilot can
+     * cross-check against any other source.
+     *
+     * @param  array<int, Taf>  $tafs
+     * @return array<int, string>
+     */
+    protected function formatTafs(string $airportName, string $icao, array $tafs): array
+    {
+        if ($tafs === []) {
+            return ["No hay TAF publicado para *{$airportName}* ({$icao}) en este momento."];
+        }
+
+        $header = "🔭 *{$airportName}* ({$icao})";
+        $total = count($tafs);
+        $credit = $this->sourceCredit($tafs[0]->isRelayed());
+        $budget = self::MAX_MESSAGE_LENGTH - mb_strlen($header) - 12;
+
+        $parts = [];
+
+        foreach ($tafs as $i => $taf) {
+            $lines = [];
+
+            // A cancelled TAF means the aerodrome has no valid forecast at all,
+            // and an amendment means the previous one was withdrawn early.
+            // Either changes what the text below is worth, so neither is left
+            // for the reader to notice on their own.
+            if ($taf->isCancelled()) {
+                $lines[] = '⚠️ Pronóstico cancelado (CNL)';
+            } elseif ($taf->isAmended()) {
+                $lines[] = '⚠️ Pronóstico enmendado (AMD)';
+            }
+
+            $lines[] = '```'.$taf->raw.'```';
+
+            if ($taf->explanation !== []) {
+                $lines[] = '';
+                $lines[] = '📋 *Qué dice*';
+
+                foreach ($taf->explanation as $line) {
+                    $lines[] = "• {$line}";
+                }
+            }
+
+            if ($i === $total - 1) {
+                $lines[] = '';
+                $lines[] = $credit;
+            }
+
+            foreach ($this->splitToFit(implode("\n", $lines), $budget) as $part) {
+                $parts[] = $part;
             }
         }
 
-        return false;
+        return $this->withHeader($header, $parts);
     }
 
     /**
@@ -162,7 +279,7 @@ class WhatsappBotService
 
         $header = "🌦️ *{$airportName}* ({$icao})";
         $total = count($metars);
-        $credit = $this->sourceCredit($metars[0]);
+        $credit = $this->sourceCredit($metars[0]->isRelayed());
         $budget = self::MAX_MESSAGE_LENGTH - mb_strlen($header) - 12;
 
         $parts = [];
@@ -205,13 +322,11 @@ class WhatsappBotService
      * The SMN issues these reports either way — NOAA only relays them over the
      * international exchange — so the credit names the SMN in both cases and
      * mentions the relay only when there was one. Hiding the relay would be
-     * dishonest; leading with it would misattribute the observation.
+     * dishonest; leading with it would misattribute the report.
      */
-    protected function sourceCredit(Metar $metar): string
+    protected function sourceCredit(bool $relayed): string
     {
-        return $metar->isRelayed()
-            ? '_Fuente: Servicio Meteorológico Nacional (vía NOAA)_'
-            : '_Fuente: Servicio Meteorológico Nacional_';
+        return '_Fuente: Servicio Meteorológico Nacional_';
     }
 
     /**
@@ -430,6 +545,8 @@ class WhatsappBotService
         return "¡Hola! 👋 Decime el aeropuerto que te interesa y te paso sus NOTAM activos.\n\n"
             .'Por ejemplo: _"hay notams en Ezeiza?"_ o _"aeroparque"_ o el código _"EZE"_.'
             ."\n\n"
-            .'Si querés el estado del tiempo, pedime el METAR: _"metar EZE"_ o _"cómo está el clima en Bariloche?"_.';
+            .'Si querés el estado del tiempo, pedime el METAR: _"metar EZE"_ o _"cómo está el clima en Bariloche?"_.'
+            ."\n\n"
+            .'Y si lo que te interesa es cómo va a estar, pedime el TAF: _"taf EZE"_ o _"pronóstico de Aeroparque"_.';
     }
 }

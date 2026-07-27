@@ -52,9 +52,9 @@ function fakeAnac(mixed $pib = null): void
 
 /**
  * HTML captured verbatim from ssl.smn.gob.ar/mensajes — the legacy application
- * that www.smn.gob.ar/metar embeds in an iframe. Same reasoning as the ANAC
- * fixtures: the scraper is the only thing standing between us and a silently
- * empty weather report.
+ * that www.smn.gob.ar/metar and /taf embed in an iframe. Same reasoning as the
+ * ANAC fixtures: the scraper is the only thing standing between us and a
+ * silently empty weather report.
  */
 function smnFixture(string $name): string
 {
@@ -70,12 +70,28 @@ function smnFixture(string $name): string
  *
  * Pass $smn to override the SMN's response, most usefully with the captured
  * Cloudflare interstitial (smnFixture('challenge.html')), and $noaa likewise.
+ *
+ * The patterns match on the endpoint rather than on the host: observations and
+ * forecasts come off the same SMN page, so a host-wide stub would answer a TAF
+ * query with a METAR.
  */
-function fakeSmn(mixed $smn = null, mixed $noaa = null): void
+function fakeMetar(mixed $smn = null, mixed $noaa = null): void
 {
     Http::fake([
-        '*/mensajes/index.php*' => $smn ?? Http::response(smnFixture('metar-saez.html')),
-        '*aviationweather.gov*' => $noaa ?? Http::response(noaaFixture()),
+        '*observacion=metar*' => $smn ?? Http::response(smnFixture('metar-saez.html')),
+        '*aviationweather.gov/api/data/metar*' => $noaa ?? Http::response(noaaMetarFixture()),
+    ]);
+}
+
+/**
+ * The same for the forecast channel. Both fakes can coexist in one test —
+ * Http::fake() merges stubs, and these patterns do not overlap.
+ */
+function fakeTaf(mixed $smn = null, mixed $noaa = null): void
+{
+    Http::fake([
+        '*observacion=taf*' => $smn ?? Http::response(smnFixture('taf-saez.html')),
+        '*aviationweather.gov/api/data/taf*' => $noaa ?? Http::response(noaaTafFixture()),
     ]);
 }
 
@@ -86,7 +102,7 @@ function fakeSmn(mixed $smn = null, mixed $noaa = null): void
  *
  * @return array<int, array<string, mixed>>
  */
-function noaaFixture(string $raw = 'METAR SAEZ 271700Z 33007KT 9999 BKN014 OVC017 17/14 Q1007 NOSIG'): array
+function noaaMetarFixture(string $raw = 'METAR SAEZ 271700Z 33007KT 9999 BKN014 OVC017 17/14 Q1007 NOSIG'): array
 {
     return [[
         'icaoId' => 'SAEZ',
@@ -97,18 +113,50 @@ function noaaFixture(string $raw = 'METAR SAEZ 271700Z 33007KT 9999 BKN014 OVC01
 }
 
 /**
+ * The forecast equivalent. NOAA hands the TAF back under a different key
+ * ("rawTAF") and alongside its own decoded breakdown, which we ignore — the
+ * point of a relay is to pass the SMN's text on unaltered.
+ *
+ * @return array<int, array<string, mixed>>
+ */
+function noaaTafFixture(string $raw = 'TAF SAEZ 271700Z 2718/2818 02005KT 9999 BKN020 TX18/2719Z TN12/2810Z BECMG 2802/2804 VRB03KT 4000 BR BKN010'): array
+{
+    return [[
+        'icaoId' => 'SAEZ',
+        'name' => 'Buenos Aires/Pistarini Arpt',
+        'issueTime' => '2026-07-27T17:00:00.000Z',
+        'rawTAF' => $raw,
+    ]];
+}
+
+/**
  * A one-observation SMN response built on the real markup, carrying the given
  * raw METAR.
  */
-function smnWith(string $raw, string $airport = 'EZEIZA', string $observedAt = '27 - 14:00'): string
+function smnMetarWith(string $raw, string $airport = 'EZEIZA', string $observedAt = '27 - 14:00'): string
+{
+    return smnResultPage("Aeropuerto {$airport}", $observedAt, $raw);
+}
+
+/**
+ * The same for a TAF. The SMN labels the header cell "Estacion" on the forecast
+ * screen and "Aeropuerto" on the observation one; both are real, which is why
+ * the scraper strips either.
+ */
+function smnTafWith(string $raw, string $airport = 'EZEIZA', string $issuedAt = '27 - 17:00'): string
+{
+    return smnResultPage("Estacion {$airport}", $issuedAt, $raw);
+}
+
+function smnResultPage(string $header, string $issuedAt, string $raw): string
 {
     return <<<HTML
     <form name="imprimir" action="imprimir.php" method="POST">
         <div>
             <table>
-                <tr class="headerResult"><td colspan="2">Aeropuerto {$airport}</td></tr>
+                <tr class="headerResult"><td colspan="2">{$header}</td></tr>
                 <tr class="result" valign="middle">
-                    <td nowrap><b>{$observedAt}</b></td>
+                    <td nowrap><b>{$issuedAt}</b></td>
                     <td width="100%">{$raw}</td>
                 </tr>
             </table>

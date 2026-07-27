@@ -1,9 +1,10 @@
 # NOTAMs Argentina
 
 API REST y bot de WhatsApp que consultan los NOTAM activos de aeródromos
-argentinos desde [ANAC](https://ais.anac.gob.ar) y el estado del tiempo (METAR)
-desde el [SMN](https://www.smn.gob.ar/metar), y los devuelven decodificados a
-español legible.
+argentinos desde [ANAC](https://ais.anac.gob.ar), el estado del tiempo (METAR)
+desde el [SMN](https://www.smn.gob.ar/metar) y el pronóstico de aeródromo
+(TAF) desde el [mismo SMN](https://www.smn.gob.ar/taf), y los devuelven
+decodificados a español legible.
 
 Un NOTAM crudo dice `RWY 13/31 CLSD WIP MAINT`. Este servicio devuelve
 _"Pista 13/31 cerrada por trabajos de mantenimiento en progreso"_.
@@ -13,12 +14,18 @@ _"Viento del 030° (NNE) a 9 nudos. Visibilidad 10 km o más. Nubosidad rota
 (5 a 7 octavos) a 800 ft. Temperatura 15 °C, punto de rocío 14 °C. Presión QNH
 1009 hPa."_
 
+Un TAF crudo dice `TEMPO 2808/2812 0500 FGDZ BKN005`. Este servicio devuelve
+_"Fluctuaciones temporarias (TEMPO) el día 28 entre las 08:00 y las 12:00 UTC,
+en períodos de menos de una hora cada vez: Visibilidad 500 m. Fenómenos
+presentes: niebla y llovizna. Nubes: nubosidad rota (5 a 7 octavos) a 500 ft."_
+
 ## Cómo funciona
 
 ```
 ANAC (scraping HTML) → AnacNotamService                → NotamEnricher → API REST
 SMN  (scraping HTML) ┐                                                 → Bot WhatsApp
-NOAA (respaldo, API) ┴→ MetarService (caché + failover) → MetarEnricher
+NOAA (respaldo, API) ┼→ MetarService (caché + failover) → MetarEnricher
+                     └→ TafService   (caché + failover) → TafEnricher
 ```
 
 - **`AnacNotamService`** habla con ANAC y parsea su HTML. Devuelve NOTAM crudos
@@ -29,30 +36,53 @@ NOAA (respaldo, API) ┴→ MetarService (caché + failover) → MetarEnricher
   información de seguridad operacional y se sirve aunque la IA no esté.
 - Cada NOTAM expone `decoded_by` (`"ai"`, `"dictionary"` o `null`) para que el
   consumidor sepa qué calidad de decodificación recibió.
-- **`MetarService`** y **`MetarEnricher`** son el equivalente para METAR.
+- **`MetarService`** y **`TafService`** son el equivalente para el tiempo. Los
+  dos heredan de `AviationReportService`: la caché, el cooldown y el failover
+  son los mismos, porque el problema de acceder al SMN es el mismo.
 
-### Por qué hay dos fuentes de METAR
+### METAR y TAF no son lo mismo
+
+Un METAR es una **observación**: qué está pasando ahora en el aeródromo. Un TAF
+es un **pronóstico**: qué se espera en las próximas 24 o 30 horas. Contestar una
+pregunta sobre mañana con un METAR es estar equivocado con confianza, y por eso
+son dos endpoints separados en vez de "el tiempo".
+
+La diferencia de forma es que un TAF no es una foto sino una secuencia de
+períodos. `BECMG`, `TEMPO`, `PROB30` y `FM` abren cada uno una ventana de
+tiempo, y los grupos que siguen valen **sólo dentro de esa ventana**. Por eso
+`TafDecoder` renderiza cada cambio como un encabezado terminado en `:` con las
+condiciones debajo: atribuir un fenómeno al período equivocado es tan grave como
+traducirlo mal.
+
+`TEMPO` es el que más se malinterpreta y por eso se explicita. No significa que
+las condiciones duren toda la ventana, sino que pueden aparecer dentro de ella
+por menos de una hora cada vez. Leído al revés, un `TEMPO` de niebla se
+convierte en cuatro horas de aeródromo cerrado que nadie pronosticó.
+
+### Por qué hay dos fuentes de METAR y TAF
 
 El SMN es la autoridad para los aeródromos argentinos y se consulta primero.
 Pero tiene un Cloudflare adelante que nos bloquea por tramos (ver más abajo), y
 un informe meteorológico que nadie puede leer no sirve de nada.
 
-NOAA **no es otro dato**: los METAR de aeródromo se intercambian
+NOAA **no es otro dato**: los METAR y TAF de aeródromo se intercambian
 internacionalmente por los circuitos OPMET de la OMM, así que el reporte que
 NOAA sirve para SAEZ es el que emitió el SMN, relayado textual. El estándar
 existe justamente para que un reporte signifique lo mismo donde sea que se lea.
 
-Cada observación expone `fuente` (`"smn"` o `"noaa"`) y el bot lo aclara en el
-pie cuando hubo relay. La única diferencia práctica: los grupos `RMK`
-nacionales del SMN no siempre viajan por el intercambio, así que un reporte
-relayado puede venir un poco más corto.
+Cada reporte expone `fuente` (`"smn"` o `"noaa"`) y el bot lo aclara en el pie
+cuando hubo relay. La única diferencia práctica: los grupos `RMK` nacionales del
+SMN no siempre viajan por el intercambio, así que un reporte relayado puede
+venir un poco más corto. NOAA además devuelve su propia decodificación al lado
+del texto; se ignora, porque el punto de un relay es pasar el reporte del SMN
+sin tocar.
 
-### Por qué el METAR no usa IA
+### Por qué el tiempo no usa IA
 
-Un NOTAM es prosa libre: ahí un modelo aporta. Un METAR no — es un código
-posicional totalmente especificado, donde cada grupo tiene exactamente un
-significado. Por eso `MetarDecoder` es **determinístico y offline**, sin
-ninguna llamada a un modelo.
+Un NOTAM es prosa libre: ahí un modelo aporta. Un METAR o un TAF no — son
+códigos posicionales totalmente especificados, donde cada grupo tiene
+exactamente un significado. Por eso `MetarDecoder` y `TafDecoder` son
+**determinísticos y offline**, sin ninguna llamada a un modelo.
 
 No es un ahorro de costos, es una decisión de seguridad: si a un modelo se le
 pide parafrasear `03009KT` puede devolver un rumbo o una velocidad equivocada,
@@ -62,7 +92,11 @@ reconoce el grupo o lo deja tal cual: lo que no entiende aparece como
 
 Las abreviaturas salen del
 [decode key del NWS/FAA](https://www.weather.gov/media/wrh/mesowest/metar_decode_key.pdf),
-transcriptas y traducidas en `resources/data/metar-abbreviations.php`.
+transcriptas y traducidas en `resources/data/metar-abbreviations.php`. Son las
+mismas para los dos códigos, que es exactamente por qué `AviationCodeDecoder`
+existe: viento, visibilidad, fenómenos y nubes significan lo mismo se esté
+informando lo que el tiempo **es** o lo que se pronostica que **será**. Lo único
+que cambia entre `MetarDecoder` y `TafDecoder` es la estructura de alrededor.
 
 El registro de aeródromos vive en la tabla `airports`. Es necesario porque el
 selector de ANAC sólo lista lugares con NOTAM activos y, por lo tanto, no puede
@@ -87,20 +121,29 @@ decodificador offline.
 | `GET /api/v1/notams/aerodromos` | Aeródromos que ANAC reporta con NOTAM activos ahora. |
 | `GET /api/v1/metar?aerodromo=EZE` | METAR vigente, crudo y explicado en español. Mismos códigos que arriba. |
 | `GET /api/v1/metar?aerodromo=EZE&decode=false` | Sólo el METAR crudo, sin la explicación. |
+| `GET /api/v1/taf?aerodromo=EZE` | TAF vigente, crudo y explicado en español. |
+| `GET /api/v1/taf?aerodromo=EZE&decode=false` | Sólo el TAF crudo, sin la explicación. |
 
-El METAR se devuelve con el reporte textual (`metar`) y la explicación como
-lista de líneas (`explicacion`), una por grupo decodificado y en el orden en
-que aparecen en el reporte. El crudo nunca se omite: es la forma estándar
-internacional contra la que un piloto puede contrastar cualquier otra fuente.
+Los dos endpoints de tiempo devuelven el reporte textual (`metar` / `taf`) y la
+explicación como lista de líneas (`explicacion`), una por grupo decodificado y
+en el orden en que aparecen en el reporte. El crudo nunca se omite: es la forma
+estándar internacional contra la que un piloto puede contrastar cualquier otra
+fuente.
 
-Se devuelve **una sola observación: la vigente**. Un METAR queda superado en
-cuanto se emite el siguiente, y las fuentes no coinciden en cuánto historial
-entregan — el SMN manda sólo la última, NOAA un par de horas. `MetarService`
-normaliza eso; si no, la respuesta dependería de qué fuente contestó y quedaría
-una lectura vieja al lado de la vigente sin nada que las distinga.
+Se devuelve **un solo reporte: el vigente**. Un METAR queda superado en cuanto
+se emite el siguiente y un TAF en cuanto sale la próxima emisión o una enmienda,
+y las fuentes no coinciden en cuánto historial entregan — el SMN manda sólo el
+último, NOAA unas horas. `AviationReportService` normaliza eso; si no, la
+respuesta dependería de qué fuente contestó y quedaría un reporte viejo al lado
+del vigente sin nada que los distinga.
 
-Los aeródromos sin código OACI dan 404 en `/metar` (no 502): el SMN indexa las
-observaciones sólo por ese código, así que reintentar nunca va a servir.
+El TAF agrega `enmendado` y `cancelado`. Una enmienda (`AMD`) retira el
+pronóstico anterior antes de que venciera y una cancelación (`CNL`) lo retira
+sin reemplazarlo, así que ninguna de las dos se deja librada a que el lector la
+note en el texto crudo.
+
+Los aeródromos sin código OACI dan 404 en `/metar` y `/taf` (no 502): el SMN
+indexa por ese código, así que reintentar nunca va a servir.
 
 Las rutas sin `/v1` siguen funcionando como alias. Todas están limitadas a 60
 peticiones por minuto por IP: cada consulta sin cachear puede disparar una
@@ -117,11 +160,19 @@ Cuando un nombre es ambiguo — Córdoba tiene tres aeródromos — pregunta en 
 de elegir: mandar los NOTAM del aeródromo equivocado es peor que repreguntar.
 
 Si el mensaje menciona el tiempo (`"metar EZE"`, `"cómo está el clima en
-Bariloche?"`, `"viento en SAEZ"`) responde con el METAR en vez de los NOTAM.
-Las palabras de pronóstico (`"pronóstico"`, `"mañana"`) **no** disparan METAR a
-propósito: un METAR es una observación de lo que está pasando ahora, y
-contestar con él una pregunta sobre mañana sería estar equivocado con
-confianza.
+Bariloche?"`, `"viento en SAEZ"`) responde con el METAR en vez de los NOTAM. Si
+pregunta por lo que va a pasar (`"taf EZE"`, `"pronóstico de Aeroparque"`,
+`"va a llover en SAEZ?"`, `"cómo va a estar el tiempo mañana?"`) responde con el
+TAF.
+
+Las palabras de pronóstico ganan sobre las de observación, porque una pregunta
+sobre mañana contiene las dos: _"cómo va a estar el tiempo mañana"_ menciona
+"tiempo" tanto como menciona "mañana", y el pronóstico es la lectura honesta.
+Antes esas palabras caían a NOTAM justamente para no contestarlas con un METAR;
+ahora hay con qué contestarlas.
+
+La palabra `"notam"` gana sobre todo lo demás: quien la escribió sabe lo que
+pidió, y _"hay notams para mañana en EZE?"_ no se contesta con un pronóstico.
 
 **Requiere un worker corriendo.** Sin él, el webhook acepta el mensaje y nadie
 responde nunca:
@@ -146,7 +197,7 @@ PRAGMA journal_mode=WAL;
 `ssl.smn.gob.ar` tiene un Cloudflare adelante que responde con un desafío en vez
 de la página. A veces es un caso aislado — el mismo pedido funciona segundos
 después — y a veces es un bloqueo sostenido de horas contra la IP.
-`SmnMetarSource` lo detecta por el cuerpo de la respuesta (llega tanto con 403
+`SmnReportSource` lo detecta por el cuerpo de la respuesta (llega tanto con 403
 como con 200).
 
 Lo importante, medido: **el bloqueo se endurece cuanto más se insiste**. Con
@@ -155,16 +206,21 @@ Insistir mantiene vivo el bloqueo propio.
 
 De ahí las tres capas, en orden de importancia:
 
-1. **Caché** (`METAR_TTL`, 10 min) — baja el volumen a unos pocos pedidos por
-   estación por hora. Los METAR se emiten cada hora, así que no se pierde
-   actualidad.
-2. **Cooldown** (`METAR_SOURCE_COOLDOWN`, 15 min) — cuando una fuente falla se
+1. **Caché** (`METAR_TTL` 10 min, `TAF_TTL` 30 min) — baja el volumen a unos
+   pocos pedidos por estación por hora. Los METAR se emiten cada hora y los TAF
+   cada seis, así que no se pierde actualidad.
+2. **Cooldown** (`WEATHER_SOURCE_COOLDOWN`, 15 min) — cuando una fuente falla se
    la deja en paz un rato. Sin esto, cada mensaje entrante dispara pedidos
    nuevos y el bloqueo nunca expira. Es el arreglo del bloqueo que se
    realimenta.
 3. **Failover a NOAA** — mientras el SMN descansa, contesta el respaldo.
 
-Los reintentos dentro de `SmnMetarSource` (`SMN_METAR_ATTEMPTS`, 2) cubren
+El cooldown es **uno solo para METAR y TAF**, y eso es deliberado: el bloqueo es
+contra nosotros en la puerta del SMN, no contra una de sus páginas. Pedirle un
+TAF segundos después de que nos negó un METAR mantendría vivo el bloqueo igual
+que reintentar.
+
+Los reintentos dentro de `SmnReportSource` (`SMN_METAR_ATTEMPTS`, 2) cubren
 **sólo** el desafío aislado. Subirlos empeora las cosas.
 
 ## Desarrollo
@@ -177,15 +233,19 @@ php artisan test                              # suite completa (Pest)
 ```
 
 La suite está escrita en **Pest**. Los helpers compartidos (`anacFixture()`,
-`fakeAnac()`, `pibWith()`, `withoutAi()`, `smnFixture()`, `fakeSmn()`,
-`smnWith()`) viven en `tests/Pest.php`, que también enchufa `Tests\TestCase` —
-y con él la base migrada y sembrada de aeródromos — a todo lo que hay bajo
-`Feature/` y `Unit/`.
+`fakeAnac()`, `pibWith()`, `withoutAi()`, `smnFixture()`, `fakeMetar()`,
+`fakeTaf()`, `smnMetarWith()`, `smnTafWith()`) viven en `tests/Pest.php`, que
+también enchufa `Tests\TestCase` — y con él la base migrada y sembrada de
+aeródromos — a todo lo que hay bajo `Feature/` y `Unit/`.
 
 `fakeAnac()` se llama dentro de cada test y no en un `beforeEach`: `Http::fake()`
 fusiona los stubs y gana el primero, así que un fake posterior no puede pisar a
-uno anterior. Lo mismo vale para `fakeSmn()`; como apuntan a hosts distintos,
-un test que ejercite ambos canales puede llamar a los dos.
+uno anterior. Lo mismo vale para `fakeMetar()` y `fakeTaf()`; como no se
+solapan, un test que ejercite varios canales puede llamar a los tres.
+
+`fakeMetar()` y `fakeTaf()` matchean por endpoint y no por host, justamente
+porque el SMN sirve observación y pronóstico desde la misma página: un stub a
+nivel de host contestaría una consulta de TAF con un METAR.
 
 Los tests del scraper corren contra HTML capturado de los sitios reales
 (`tests/Fixtures/anac/` y `tests/Fixtures/smn/`). Si ANAC o el SMN cambian su

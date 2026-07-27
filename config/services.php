@@ -41,16 +41,29 @@ return [
         'notams_ttl' => env('ANAC_NOTAM_TTL', 300),
     ],
 
+    'weather' => [
+        // How long to leave a source alone after it fails. The SMN's challenge
+        // tightens the more it is hit, so backing off is what lets the block
+        // expire; meanwhile the next source answers. Set to 0 to disable.
+        //
+        // Shared by METAR and TAF: the block is against us at the source's
+        // front door, not against one of its pages.
+        'source_cooldown' => env('WEATHER_SOURCE_COOLDOWN', env('METAR_SOURCE_COOLDOWN', 900)),
+    ],
+
     'metar' => [
         // METARs are issued hourly (SPECIs in between), so a short cache still
         // serves current data while keeping request volume low — which is what
         // actually keeps us out of the SMN's bot challenge.
         'ttl' => env('METAR_TTL', 600),
+    ],
 
-        // How long to leave a source alone after it fails. The SMN's challenge
-        // tightens the more it is hit, so backing off is what lets the block
-        // expire; meanwhile the next source answers. Set to 0 to disable.
-        'source_cooldown' => env('METAR_SOURCE_COOLDOWN', 900),
+    'taf' => [
+        // TAFs are issued every six hours, so the cache can be far longer than
+        // the METAR one without ever serving a superseded forecast. Amendments
+        // are the reason it is not longer still: an AMD can go out at any time,
+        // and it goes out precisely when the forecast changed enough to matter.
+        'ttl' => env('TAF_TTL', 1800),
     ],
 
     'smn' => [
@@ -68,7 +81,12 @@ return [
         // Fallback for when the SMN is blocking us. Serves the same
         // SMN-issued reports, relayed over the WMO OPMET exchange.
         'base_url' => env('NOAA_METAR_BASE_URL', 'https://aviationweather.gov'),
-        'hours' => env('NOAA_METAR_HOURS', 2),
+        'metar_hours' => env('NOAA_METAR_HOURS', 2),
+
+        // Wider than the METAR window because the issue cycle is: a TAF goes
+        // out every six hours, so a shorter look-back would come back empty for
+        // a station that simply had not reissued yet.
+        'taf_hours' => env('NOAA_TAF_HOURS', 8),
     ],
 
     'twilio' => [

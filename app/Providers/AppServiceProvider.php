@@ -5,7 +5,10 @@ namespace App\Providers;
 use App\Contracts\WhatsappSender;
 use App\Services\MetarService;
 use App\Services\NoaaMetarSource;
+use App\Services\NoaaTafSource;
 use App\Services\SmnMetarSource;
+use App\Services\SmnTafSource;
+use App\Services\TafService;
 use App\Services\TwilioWhatsappSender;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -27,6 +30,11 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(MetarService::class, fn ($app) => new MetarService([
             $app->make(SmnMetarSource::class),
             $app->make(NoaaMetarSource::class),
+        ]));
+
+        $this->app->singleton(TafService::class, fn ($app) => new TafService([
+            $app->make(SmnTafSource::class),
+            $app->make(NoaaTafSource::class),
         ]));
     }
 

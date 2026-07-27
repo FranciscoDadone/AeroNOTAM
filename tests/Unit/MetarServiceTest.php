@@ -21,7 +21,7 @@ function metarService(): MetarService
 }
 
 it('parses a metar from the real SMN markup', function () {
-    fakeSmn();
+    fakeMetar();
 
     $metars = metarService()->getMetars('SAEZ');
 
@@ -38,7 +38,7 @@ it('parses a metar from the real SMN markup', function () {
  * could do, so the station/name pairing is asserted explicitly.
  */
 it('keeps stations apart when several are returned', function () {
-    fakeSmn(Http::response(smnFixture('metar-multi.html')));
+    fakeMetar(Http::response(smnFixture('metar-multi.html')));
 
     $metars = metarService()->getMetars('SABE');
 
@@ -59,13 +59,13 @@ it('keeps stations apart when several are returned', function () {
  * than the one asked for.
  */
 it('takes the station code from the report body', function () {
-    fakeSmn(Http::response(smnWith('METAR SAWH 271200Z 32005KT 9999 M03/M07 Q1010 =', 'USHUAIA')));
+    fakeMetar(Http::response(smnMetarWith('METAR SAWH 271200Z 32005KT 9999 M03/M07 Q1010 =', 'USHUAIA')));
 
     expect(metarService()->getMetars('SAEZ')[0]->station)->toBe('SAWH');
 });
 
 it('returns no observations for a station the SMN does not publish', function () {
-    fakeSmn(Http::response(smnFixture('metar-empty.html')));
+    fakeMetar(Http::response(smnFixture('metar-empty.html')));
 
     expect(metarService()->getMetars('ZZZZ'))->toBe([]);
 });
@@ -81,7 +81,7 @@ it('retries past an isolated cloudflare interstitial', function () {
         '*/mensajes/index.php*' => Http::sequence()
             ->push(smnFixture('challenge.html'), 403)
             ->push(smnFixture('metar-saez.html'), 200),
-        '*aviationweather.gov*' => Http::response(noaaFixture()),
+        '*aviationweather.gov*' => Http::response(noaaMetarFixture()),
     ]);
 
     $metars = metarService()->getMetars('SAEZ');
@@ -103,7 +103,7 @@ it('retries past an isolated cloudflare interstitial', function () {
 */
 
 it('falls through to NOAA when the SMN is blocking', function () {
-    fakeSmn(Http::response(smnFixture('challenge.html'), 403));
+    fakeMetar(Http::response(smnFixture('challenge.html'), 403));
 
     $metars = metarService()->getMetars('SAEZ');
 
@@ -128,7 +128,7 @@ it('falls through to NOAA when the SMN is blocking', function () {
 */
 
 it('keeps only the most recent observation', function () {
-    fakeSmn(Http::response(smnFixture('challenge.html'), 403), Http::response([
+    fakeMetar(Http::response(smnFixture('challenge.html'), 403), Http::response([
         [
             'icaoId' => 'SAZR',
             'name' => 'Santa Rosa',
@@ -153,7 +153,7 @@ it('keeps only the most recent observation', function () {
  * rather than assumed to come first.
  */
 it('picks the newest even when the source lists it last', function () {
-    fakeSmn(Http::response(smnFixture('challenge.html'), 403), Http::response([
+    fakeMetar(Http::response(smnFixture('challenge.html'), 403), Http::response([
         ['icaoId' => 'SAZR', 'rawOb' => 'METAR SAZR 271600Z 17015KT CAVOK 17/10 Q1006'],
         ['icaoId' => 'SAZR', 'rawOb' => 'METAR SAZR 271700Z 16009KT CAVOK 17/09 Q1006'],
     ]));
@@ -169,7 +169,7 @@ it('picks the newest even when the source lists it last', function () {
 it('resolves the day of month across a month boundary', function () {
     Carbon::setTestNow(Carbon::parse('2026-08-01 01:00:00', 'UTC'));
 
-    fakeSmn(Http::response(smnFixture('challenge.html'), 403), Http::response([
+    fakeMetar(Http::response(smnFixture('challenge.html'), 403), Http::response([
         ['icaoId' => 'SAZR', 'rawOb' => 'METAR SAZR 312300Z 17015KT CAVOK 17/10 Q1006'],
         ['icaoId' => 'SAZR', 'rawOb' => 'METAR SAZR 010030Z 16009KT CAVOK 17/09 Q1006'],
     ]));
@@ -184,13 +184,13 @@ it('resolves the day of month across a month boundary', function () {
  * yields one current observation for each.
  */
 it('keeps one observation per station', function () {
-    fakeSmn(Http::response(smnFixture('metar-multi.html')));
+    fakeMetar(Http::response(smnFixture('metar-multi.html')));
 
     expect(metarService()->getMetars('SABE'))->toHaveCount(4);
 });
 
 it('prefers the SMN when it answers', function () {
-    fakeSmn();
+    fakeMetar();
 
     expect(metarService()->getMetars('SAEZ')[0]->source)->toBe('smn');
 
@@ -198,7 +198,7 @@ it('prefers the SMN when it answers', function () {
 });
 
 it('only fails once every source has been tried', function () {
-    fakeSmn(
+    fakeMetar(
         Http::response(smnFixture('challenge.html'), 403),
         Http::response('down', 503),
     );
@@ -212,7 +212,7 @@ it('only fails once every source has been tried', function () {
  * needless second request to the fallback.
  */
 it('does not fail over when the SMN legitimately has nothing', function () {
-    fakeSmn(Http::response(smnFixture('metar-empty.html')));
+    fakeMetar(Http::response(smnFixture('metar-empty.html')));
 
     expect(metarService()->getMetars('SAEZ'))->toBe([]);
 
@@ -231,7 +231,7 @@ it('does not fail over when the SMN legitimately has nothing', function () {
  * otherwise every incoming message would hold our own block open.
  */
 it('stops asking a source that just failed', function () {
-    fakeSmn(Http::response(smnFixture('challenge.html'), 403));
+    fakeMetar(Http::response(smnFixture('challenge.html'), 403));
 
     metarService()->getMetars('SAEZ');
     Cache::forget('metar:SAEZ');
@@ -248,20 +248,20 @@ it('stops asking a source that just failed', function () {
 it('goes back to the SMN once the cooldown expires', function () {
     config(['services.smn.attempts' => 2]);
 
-    // A sequence rather than two fakeSmn() calls: Http::fake() merges stubs and
+    // A sequence rather than two fakeMetar() calls: Http::fake() merges stubs and
     // the first match wins, so a later fake cannot override an earlier one.
     Http::fake([
         '*/mensajes/index.php*' => Http::sequence()
             ->push(smnFixture('challenge.html'), 403)
             ->push(smnFixture('challenge.html'), 403)
             ->push(smnFixture('metar-saez.html'), 200),
-        '*aviationweather.gov*' => Http::response(noaaFixture()),
+        '*aviationweather.gov*' => Http::response(noaaMetarFixture()),
     ]);
 
     expect(metarService()->getMetars('SAEZ')[0]->source)->toBe('noaa');
 
     Cache::forget('metar:SAEZ');
-    Cache::forget('metar:cooldown:smn');
+    Cache::forget('weather:cooldown:smn');
 
     expect(metarService()->getMetars('SAEZ')[0]->source)->toBe('smn');
 });
@@ -271,10 +271,10 @@ it('goes back to the SMN once the cooldown expires', function () {
  * resting, the service tries them all rather than failing without asking.
  */
 it('ignores the cooldowns when every source is resting', function () {
-    Cache::put('metar:cooldown:smn', true, 900);
-    Cache::put('metar:cooldown:noaa', true, 900);
+    Cache::put('weather:cooldown:smn', true, 900);
+    Cache::put('weather:cooldown:noaa', true, 900);
 
-    fakeSmn();
+    fakeMetar();
 
     expect(metarService()->getMetars('SAEZ')[0]->source)->toBe('smn');
 });
@@ -284,7 +284,7 @@ it('ignores the cooldowns when every source is resting', function () {
  * SMN, not the retry loop — so it matters that it works.
  */
 it('does not hit the SMN twice for the same station', function () {
-    fakeSmn();
+    fakeMetar();
 
     metarService()->getMetars('SAEZ');
     metarService()->getMetars('SAEZ');
@@ -293,7 +293,7 @@ it('does not hit the SMN twice for the same station', function () {
 });
 
 it('queries the SMN by ICAO code', function () {
-    fakeSmn();
+    fakeMetar();
 
     metarService()->getMetars('saez');
 

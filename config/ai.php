@@ -13,7 +13,9 @@ return [
     |
     */
 
-    'default' => 'openai',
+    // OpenRouter is the only provider this application has credentials for;
+    // the agents in app/Ai/Agents also pin it explicitly.
+    'default' => 'openrouter',
     'default_for_images' => 'gemini',
     'default_for_audio' => 'openai',
     'default_for_transcription' => 'openai',

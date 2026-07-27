@@ -38,6 +38,7 @@ return [
     'anac' => [
         'base_url' => env('ANAC_NOTAM_BASE_URL', 'https://ais.anac.gob.ar'),
         'indicators_ttl' => env('ANAC_NOTAM_INDICATORS_TTL', 3600),
+        'notams_ttl' => env('ANAC_NOTAM_TTL', 300),
     ],
 
     'twilio' => [

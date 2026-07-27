@@ -3,7 +3,8 @@
 namespace App\Services;
 
 use App\Ai\Agents\AirportMatcherAgent;
-use Illuminate\Support\Str;
+use App\DataObjects\Notam;
+use App\Support\AirportResolver;
 
 class WhatsappNotamBotService
 {
@@ -15,7 +16,11 @@ class WhatsappNotamBotService
      */
     protected const MAX_MESSAGE_LENGTH = 1500;
 
-    public function __construct(protected AnacNotamService $anac) {}
+    public function __construct(
+        protected AnacNotamService $anac,
+        protected NotamEnricher $enricher,
+        protected AirportResolver $airports,
+    ) {}
 
     /**
      * Build the natural-language WhatsApp reply for an incoming message, as
@@ -32,18 +37,17 @@ class WhatsappNotamBotService
             return [$this->helpMessage()];
         }
 
-        try {
-            $knownAirports = $this->anac->getKnownAirports();
-        } catch (\Throwable $e) {
-            report($e);
-
-            return ['No pude consultar el servicio de NOTAM de ANAC en este momento. Probá de nuevo en unos minutos.'];
-        }
-
-        $indicator = $this->matchIndicator($message, $knownAirports);
+        $indicator = $this->matchIndicator($message);
 
         if ($indicator === null) {
-            return [$this->helpMessage()];
+            // Several aerodromes share the name the user typed (Córdoba has
+            // three). Asking is the only honest answer — picking one silently
+            // could send a pilot the wrong aerodrome's NOTAMs.
+            $candidates = $this->airports->candidatesFromText($message);
+
+            return [count($candidates) > 1
+                ? $this->disambiguationMessage($candidates)
+                : $this->helpMessage()];
         }
 
         try {
@@ -54,75 +58,33 @@ class WhatsappNotamBotService
             return ['Encontré el aeropuerto pero no pude obtener sus NOTAM en este momento. Probá de nuevo en unos minutos.'];
         }
 
-        return $this->formatNotams($knownAirports[$indicator], $indicator, $notams);
+        return $this->formatNotams(
+            $this->airports->nameFor($indicator) ?? $indicator,
+            $indicator,
+            $this->enricher->enrich($notams),
+        );
     }
 
     /**
      * Try to resolve an airport indicator from free text: first with cheap,
      * deterministic code/name matching, then — only if that fails — with an
      * AI call, so most messages never need a model at all.
-     *
-     * @param  array<string, string>  $airports
      */
-    protected function matchIndicator(string $message, array $airports): ?string
+    protected function matchIndicator(string $message): ?string
     {
-        return $this->matchIndicatorDeterministically($message, $airports)
-            ?? $this->matchIndicatorWithAi($message, $airports);
+        return $this->airports->matchFromText($message)
+            ?? $this->matchIndicatorWithAi($message);
     }
 
-    /**
-     * @param  array<string, string>  $airports
-     */
-    protected function matchIndicatorDeterministically(string $message, array $airports): ?string
-    {
-        // Direct ANAC code mention, e.g. "notams EZE" or "eze".
-        foreach ($airports as $code => $name) {
-            if (ctype_alpha($code) && preg_match('/\b'.preg_quote($code, '/').'\b/i', $message) === 1) {
-                return $code;
-            }
-        }
-
-        // Direct OACI/ICAO code mention, e.g. "notams SAEZ" or "saez".
-        foreach ($this->anac->oaciCodes() as $oaci => $localCode) {
-            if (array_key_exists($localCode, $airports) && preg_match('/\b'.preg_quote($oaci, '/').'\b/i', $message) === 1) {
-                return $localCode;
-            }
-        }
-
-        // Airport/city name mention, e.g. "ezeiza", "bariloche", "aeroparque".
-        // Skip FIR-wide advisory pseudo-codes ("-EF", "---", ...) here too —
-        // otherwise "ezeiza" or "cordoba" match the region-wide bulletin
-        // instead of the actual airport of the same name.
-        $normalizedMessage = $this->normalize($message);
-
-        foreach ($airports as $code => $name) {
-            if (! ctype_alpha($code)) {
-                continue;
-            }
-
-            foreach (preg_split('/[\s\/]+/', $name) as $word) {
-                $word = $this->normalize($word);
-
-                if (mb_strlen($word) >= 4 && str_contains($normalizedMessage, $word)) {
-                    return $code;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * @param  array<string, string>  $airports
-     */
-    protected function matchIndicatorWithAi(string $message, array $airports): ?string
+    protected function matchIndicatorWithAi(string $message): ?string
     {
         if (blank(config('ai.providers.openrouter.key'))) {
             return null;
         }
 
+        $airports = $this->airports->known();
+
         $list = collect($airports)
-            ->filter(fn (string $name, string $code) => ctype_alpha($code))
             ->map(fn (string $name, string $code) => "{$code} - {$name}")
             ->implode("\n");
 
@@ -142,11 +104,15 @@ class WhatsappNotamBotService
     }
 
     /**
-     * One WhatsApp message per NOTAM, each prefixed with "(i/N)" (N = number
-     * of NOTAMs) so a multi-NOTAM reply reads as a clearly numbered sequence
-     * in the chat instead of one giant block of text.
+     * One WhatsApp message per NOTAM — or several, when a single NOTAM's text
+     * exceeds Twilio's per-message limit. Each carries an "(i/N)" prefix so a
+     * multi-part reply reads as a clearly numbered sequence in the chat.
      *
-     * @param  array<int, array<string, mixed>>  $notams
+     * A long NOTAM is split rather than truncated: dropping the tail of an
+     * aeronautical notice would silently hide exactly the kind of detail
+     * (a closure window, a contact number) the pilot needs.
+     *
+     * @param  array<int, Notam>  $notams
      * @return array<int, string>
      */
     protected function formatNotams(string $airportName, string $indicator, array $notams): array
@@ -155,21 +121,24 @@ class WhatsappNotamBotService
             return ["No hay NOTAM activos para *{$airportName}* ({$indicator}) en este momento. ✅"];
         }
 
-        $total = count($notams);
         $header = "✈️ *{$airportName}* ({$indicator})";
+        $total = count($notams);
 
-        $messages = [];
+        // Reserve room for the header and the widest plausible "(99/99) "
+        // prefix, so the assembled message still fits once both are added.
+        $budget = self::MAX_MESSAGE_LENGTH - mb_strlen($header) - 12;
+
+        $parts = [];
 
         foreach ($notams as $i => $notam) {
-            $vigencia = $notam['permanent']
+            $vigencia = $notam->permanent
                 ? 'permanente'
-                : "hasta {$notam['valid_until']} UTC";
+                : "hasta {$notam->validUntil} UTC";
 
             $lines = [
-                $total > 1 ? '('.($i + 1)."/{$total}) {$header}" : $header,
-                ($i + 1).". *{$notam['number']}*",
-                $notam['decoded_es'] ?? $notam['text_en'],
-                "🕐 Desde {$notam['valid_from']} UTC, {$vigencia}.",
+                ($i + 1).". *{$notam->number}*",
+                $notam->displayText(),
+                "🕐 Desde {$notam->validFrom} UTC, {$vigencia}.",
             ];
 
             if ($i === $total - 1) {
@@ -177,29 +146,126 @@ class WhatsappNotamBotService
                 $lines[] = '_Fuente: ANAC Argentina_';
             }
 
-            $message = implode("\n", $lines);
-
-            if (mb_strlen($message) > self::MAX_MESSAGE_LENGTH) {
-                $message = mb_substr($message, 0, self::MAX_MESSAGE_LENGTH - 1).'…';
+            foreach ($this->splitToFit(implode("\n", $lines), $budget) as $part) {
+                $parts[] = $part;
             }
-
-            $messages[] = $message;
         }
 
-        return $messages;
+        $partCount = count($parts);
+
+        return array_map(
+            fn (string $part, int $i) => $partCount > 1
+                ? '('.($i + 1)."/{$partCount}) {$header}\n{$part}"
+                : "{$header}\n{$part}",
+            $parts,
+            array_keys($parts),
+        );
+    }
+
+    /**
+     * Break text into chunks of at most $limit characters, preferring line
+     * breaks and then word boundaries so a split never lands mid-word.
+     *
+     * @return array<int, string>
+     */
+    protected function splitToFit(string $text, int $limit): array
+    {
+        if (mb_strlen($text) <= $limit) {
+            return [$text];
+        }
+
+        $chunks = [];
+        $current = '';
+
+        foreach (explode("\n", $text) as $line) {
+            // A single line longer than the limit has to be broken up itself.
+            foreach ($this->wrapLine($line, $limit) as $piece) {
+                $candidate = $current === '' ? $piece : $current."\n".$piece;
+
+                if (mb_strlen($candidate) <= $limit) {
+                    $current = $candidate;
+
+                    continue;
+                }
+
+                if ($current !== '') {
+                    $chunks[] = $current;
+                }
+
+                $current = $piece;
+            }
+        }
+
+        if ($current !== '') {
+            $chunks[] = $current;
+        }
+
+        return $chunks;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function wrapLine(string $line, int $limit): array
+    {
+        if (mb_strlen($line) <= $limit) {
+            return [$line];
+        }
+
+        $pieces = [];
+        $current = '';
+
+        foreach (explode(' ', $line) as $word) {
+            $candidate = $current === '' ? $word : $current.' '.$word;
+
+            if (mb_strlen($candidate) <= $limit) {
+                $current = $candidate;
+
+                continue;
+            }
+
+            if ($current !== '') {
+                $pieces[] = $current;
+                $current = '';
+            }
+
+            // A single word longer than the whole budget (a URL, a coordinate
+            // run) still has to be cut somewhere — hard-split it.
+            while (mb_strlen($word) > $limit) {
+                $pieces[] = mb_substr($word, 0, $limit);
+                $word = mb_substr($word, $limit);
+            }
+
+            $current = $word;
+        }
+
+        if ($current !== '') {
+            $pieces[] = $current;
+        }
+
+        return $pieces;
+    }
+
+    /**
+     * @param  array<string, string>  $candidates
+     */
+    protected function disambiguationMessage(array $candidates): string
+    {
+        $lines = ['Encontré varios aeródromos que coinciden. ¿Cuál te interesa?', ''];
+
+        foreach ($candidates as $code => $name) {
+            $lines[] = "• *{$code}* — {$name}";
+        }
+
+        $lines[] = '';
+        $lines[] = 'Respondeme con el código.';
+
+        return implode("\n", $lines);
     }
 
     protected function helpMessage(): string
     {
         return "¡Hola! 👋 Decime el aeropuerto que te interesa y te paso sus NOTAM activos.\n\n"
-            ."Por ejemplo: _\"hay notams en Ezeiza?\"_ o _\"aeroparque\"_ o el código _\"EZE\"_.";
-    }
-
-    protected function normalize(string $text): string
-    {
-        $text = mb_strtolower($text);
-        $text = Str::ascii($text);
-
-        return $text;
+            .'Por ejemplo: _"hay notams en Ezeiza?"_ o _"aeroparque"_ o el código _"EZE"_.';
     }
 }

@@ -1,59 +1,106 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# NOTAMs Argentina
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+API REST y bot de WhatsApp que consultan los NOTAM activos de aeródromos
+argentinos desde [ANAC](https://ais.anac.gob.ar) y los devuelven decodificados
+a español legible.
 
-## About Laravel
+Un NOTAM crudo dice `RWY 13/31 CLSD WIP MAINT`. Este servicio devuelve
+_"Pista 13/31 cerrada por trabajos de mantenimiento en progreso"_.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Cómo funciona
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+```
+ANAC (scraping HTML) → AnacNotamService → NotamEnricher → API REST
+                                                        → Bot WhatsApp
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+- **`AnacNotamService`** habla con ANAC y parsea su HTML. Devuelve NOTAM crudos
+  y nada más.
+- **`NotamEnricher`** agrega la decodificación al español. Intenta primero con
+  IA (OpenRouter) y, si falla o no hay API key, cae al decodificador
+  determinístico offline. **Nunca puede tumbar el dato crudo**: un NOTAM es
+  información de seguridad operacional y se sirve aunque la IA no esté.
+- Cada NOTAM expone `decoded_by` (`"ai"`, `"dictionary"` o `null`) para que el
+  consumidor sepa qué calidad de decodificación recibió.
 
-## Contributing
+El registro de aeródromos vive en la tabla `airports`. Es necesario porque el
+selector de ANAC sólo lista lugares con NOTAM activos y, por lo tanto, no puede
+distinguir "código inexistente" de "aeródromo real sin novedades hoy".
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Puesta en marcha
 
-## Code of Conduct
+```bash
+composer setup     # instala, genera APP_KEY, migra y siembra los aeródromos
+composer dev       # servidor + worker de cola + logs
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+La `OPENROUTER_API_KEY` es opcional: sin ella todo funciona con el
+decodificador offline.
 
-## Security Vulnerabilities
+## API
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+| Endpoint | Descripción |
+| --- | --- |
+| `GET /api/v1/notams?aerodromo=EZE` | NOTAM activos. Acepta código ANAC (`EZE`) u OACI (`SAEZ`). |
+| `GET /api/v1/notams?aerodromo=EZE&decode=false` | Igual, pero sin decodificación: no gasta llamadas a la IA. |
+| `GET /api/v1/notams/aerodromos` | Aeródromos que ANAC reporta con NOTAM activos ahora. |
 
-## License
+Las rutas sin `/v1` siguen funcionando como alias. Todas están limitadas a 60
+peticiones por minuto por IP: cada consulta sin cachear puede disparar una
+llamada paga al modelo por cada NOTAM.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
-# AeroNOTAM
+## Bot de WhatsApp
+
+Twilio postea a `POST /whatsapp/webhook`, cuya firma se valida antes de aceptar
+nada. La respuesta se arma en una cola (`ProcessWhatsappNotamMessage`) para no
+hacer esperar a Twilio.
+
+El bot entiende `"EZE"`, `"SAEZ"`, `"ezeiza"` o `"hay notams en Ezeiza?"`.
+Cuando un nombre es ambiguo — Córdoba tiene tres aeródromos — pregunta en vez
+de elegir: mandar los NOTAM del aeródromo equivocado es peor que repreguntar.
+
+**Requiere un worker corriendo.** Sin él, el webhook acepta el mensaje y nadie
+responde nunca:
+
+```bash
+php artisan queue:work --tries=3
+```
+
+En producción esto va bajo systemd o supervisor, junto con
+`php artisan schedule:work` para el refresco horario de aeródromos
+(`notams:refresh-airports`).
+
+Con SQLite, activá WAL para que el worker y el servidor web no se bloqueen
+mutuamente:
+
+```sql
+PRAGMA journal_mode=WAL;
+```
+
+## Desarrollo
+
+```bash
+php artisan test                              # suite completa (Pest)
+./vendor/bin/pest --filter=decodes            # un subconjunto
+./vendor/bin/phpstan analyse --memory-limit=1G  # nivel 6
+./vendor/bin/pint                             # formato
+```
+
+La suite está escrita en **Pest**. Los helpers compartidos (`anacFixture()`,
+`fakeAnac()`, `pibWith()`, `withoutAi()`) viven en `tests/Pest.php`, que también
+enchufa `Tests\TestCase` — y con él la base migrada y sembrada de aeródromos —
+a todo lo que hay bajo `Feature/` y `Unit/`.
+
+`fakeAnac()` se llama dentro de cada test y no en un `beforeEach`: `Http::fake()`
+fusiona los stubs y gana el primero, así que un fake posterior no puede pisar a
+uno anterior.
+
+Los tests del scraper corren contra HTML capturado del sitio real
+(`tests/Fixtures/anac/`). Si ANAC cambia su markup, esos tests son lo que avisa
+— sin ellos la app devolvería listas vacías en silencio, como si el aeródromo
+estuviera despejado.
+
+PHPStan analiza `app/`, `database/`, `routes/` y las clases reales de `tests/`,
+pero no los archivos de test de Pest: no sabe qué `TestCase` liga Pest como
+`$this` dentro de un closure. El plugin oficial que lo resuelve todavía exige
+Pest 5.

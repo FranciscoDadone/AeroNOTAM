@@ -1,0 +1,23 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 6
+
+    paths:
+        - app
+        - database
+        - routes
+        - tests
+
+    # PHPStan can't see the TestCase that Pest binds as $this inside a test
+    # closure, so every $this->getJson() and $this->artisan() in a Pest file
+    # reports as a call on Pest's TestCall. The official pestphp/pest-plugin-phpstan
+    # fixes this but requires Pest 5, which is not released yet.
+    #
+    # Only the closure-based files are excluded. The real classes under tests/
+    # — the base TestCase and the test doubles — stay fully analysed.
+    excludePaths:
+        - tests/Pest.php
+        - tests/Feature
+        - tests/Unit

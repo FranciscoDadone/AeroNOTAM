@@ -1,8 +1,9 @@
 <?php
 
-use Illuminate\Foundation\Inspiring;
-use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
+// Keeps the local aerodrome registry current without putting an HTTP call to
+// ANAC on the request path. Hourly is plenty: the set of Argentine aerodromes
+// changes on a scale of years, and `last_seen_active_at` only needs to be
+// approximately right.
+Schedule::command('notams:refresh-airports')->hourly()->withoutOverlapping();

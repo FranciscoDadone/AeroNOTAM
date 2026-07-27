@@ -1,0 +1,78 @@
+<?php
+
+/**
+ * Argentine aerodromes known to ANAC, seeded from codes/names observed
+ * directly in ANAC's own place selector, with OACI/ICAO codes
+ * cross-referenced against Wikipedia's Argentina airport list.
+ *
+ * A handful of smaller aerodromes have no confirmed ICAO mapping and carry
+ * null rather than a guess — pointing at the wrong airport is far worse
+ * than admitting we do not know.
+ */
+
+return [
+    ['anac_code' => 'AER', 'icao_code' => 'SABE', 'name' => 'AEROPARQUE J. NEWBERY'],
+    ['anac_code' => 'AGR', 'icao_code' => null, 'name' => 'ALTA GRACIA/COMANDANTE EDMUNDO OLSVALDO WEISS'],
+    ['anac_code' => 'BCA', 'icao_code' => 'SAZB', 'name' => 'BAHIA BLANCA/CTE ESPORA'],
+    ['anac_code' => 'BAL', 'icao_code' => null, 'name' => 'BALCARCE'],
+    ['anac_code' => 'CAT', 'icao_code' => 'SANC', 'name' => 'CATAMARCA'],
+    ['anac_code' => 'IGU', 'icao_code' => 'SARI', 'name' => 'CATARATAS DEL IGUAZU / M. C. E. KRAUSE'],
+    ['anac_code' => 'CRV', 'icao_code' => 'SAVC', 'name' => 'COMODORO RIVADAVIA/GRAL. E. MOSCONI'],
+    ['anac_code' => 'CDU', 'icao_code' => null, 'name' => 'CONCEPCIÓN DEL URUGUAY'],
+    ['anac_code' => 'FMA', 'icao_code' => 'SACA', 'name' => 'CORDOBA/CAPITAN D.OMAR DARIO GELARDI'],
+    ['anac_code' => 'ESC', 'icao_code' => 'SACE', 'name' => 'CORDOBA/ESCUELA DE AVIACION MILITAR'],
+    ['anac_code' => 'CBA', 'icao_code' => 'SACO', 'name' => 'CORDOBA/ING. AER. A. L. V. TARAVELLA'],
+    ['anac_code' => 'CRR', 'icao_code' => 'SARC', 'name' => 'CORRIENTES'],
+    ['anac_code' => 'CZU', 'icao_code' => 'SATU', 'name' => 'CURUZU CUATIA/AEROCLUB'],
+    ['anac_code' => 'ECA', 'icao_code' => 'SAWC', 'name' => 'EL CALAFATE'],
+    ['anac_code' => 'PAL', 'icao_code' => 'SADP', 'name' => 'EL PALOMAR'],
+    ['anac_code' => 'ESQ', 'icao_code' => 'SAVE', 'name' => 'ESQUEL/BRIGADIER GENERAL ANTONIO PARODI'],
+    ['anac_code' => 'EZE', 'icao_code' => 'SAEZ', 'name' => 'EZEIZA/MINISTRO PISTARINI'],
+    ['anac_code' => 'GPI', 'icao_code' => 'SAZG', 'name' => 'GENERAL PICO'],
+    ['anac_code' => 'GOY', 'icao_code' => 'SATG', 'name' => 'GOYA'],
+    ['anac_code' => 'GUA', 'icao_code' => 'SAAG', 'name' => 'GUALEGUAYCHU'],
+    ['anac_code' => 'JUJ', 'icao_code' => 'SASJ', 'name' => 'JUJUY/GOBERNADOR GUZMAN'],
+    ['anac_code' => 'PTA', 'icao_code' => 'SADL', 'name' => 'LA PLATA'],
+    ['anac_code' => 'LAR', 'icao_code' => 'SANL', 'name' => 'LA RIOJA/CAP. VICENTE A. ALMONACID'],
+    ['anac_code' => 'FLO', 'icao_code' => 'SAEL', 'name' => 'LAS FLORES'],
+    ['anac_code' => 'MLG', 'icao_code' => 'SAMM', 'name' => 'MALARGÜE'],
+    ['anac_code' => 'MDP', 'icao_code' => 'SAZM', 'name' => 'MAR DEL PLATA/ASTOR PIAZZOLLA'],
+    ['anac_code' => 'ENO', 'icao_code' => 'SADJ', 'name' => 'MARIANO MORENO'],
+    ['anac_code' => 'MAT', 'icao_code' => 'SADZ', 'name' => 'MATANZA'],
+    ['anac_code' => 'DOZ', 'icao_code' => 'SAME', 'name' => 'MENDOZA/EL PLUMERILLO'],
+    ['anac_code' => 'NEU', 'icao_code' => 'SAZN', 'name' => 'NEUQUEN/PRESIDENTE PERON'],
+    ['anac_code' => 'LIO', 'icao_code' => 'SAZX', 'name' => 'NUEVE DE JULIO'],
+    ['anac_code' => 'LIB', 'icao_code' => 'SARL', 'name' => 'PASO DE LOS LIBRES'],
+    ['anac_code' => 'PEH', 'icao_code' => 'SAZP', 'name' => 'PEHUAJO/COM. PEDRO ZANNI'],
+    ['anac_code' => 'PTM', 'icao_code' => 'SAWP', 'name' => 'PERITO MORENO'],
+    ['anac_code' => 'POS', 'icao_code' => 'SARP', 'name' => 'POSADAS'],
+    ['anac_code' => 'DRY', 'icao_code' => 'SAVY', 'name' => 'PUERTO MADRYN/EL TEHUELCHE'],
+    ['anac_code' => 'PDI', 'icao_code' => 'SAAI', 'name' => 'PUNTA INDIO'],
+    ['anac_code' => 'ILM', 'icao_code' => 'SADQ', 'name' => 'QUILMES'],
+    ['anac_code' => 'RAI', 'icao_code' => null, 'name' => 'RANCHOS/LA IGUALDAD'],
+    ['anac_code' => 'RTA', 'icao_code' => 'SATR', 'name' => 'RECONQUISTA'],
+    ['anac_code' => 'SIS', 'icao_code' => 'SARE', 'name' => 'RESISTENCIA'],
+    ['anac_code' => 'RGR', 'icao_code' => 'SAWG', 'name' => 'RIO GALLEGOS/RIO CHICO'],
+    ['anac_code' => 'GRA', 'icao_code' => 'SAWE', 'name' => 'RIO GRANDE'],
+    ['anac_code' => 'ROS', 'icao_code' => 'SAAR', 'name' => 'ROSARIO/ ISLAS MALVINAS'],
+    ['anac_code' => 'SAL', 'icao_code' => 'SASA', 'name' => 'SALTA'],
+    ['anac_code' => 'GBL', 'icao_code' => null, 'name' => 'SALTA/GENERAL BELGRANO'],
+    ['anac_code' => 'SLT', 'icao_code' => null, 'name' => 'SALTO'],
+    ['anac_code' => 'BAR', 'icao_code' => 'SAZS', 'name' => 'SAN CARLOS DE BARILOCHE'],
+    ['anac_code' => 'FDO', 'icao_code' => 'SADF', 'name' => 'SAN FERNANDO'],
+    ['anac_code' => 'SJR', 'icao_code' => null, 'name' => 'SAN JAVIER/AEROCLUB'],
+    ['anac_code' => 'JUA', 'icao_code' => 'SANU', 'name' => 'SAN JUAN'],
+    ['anac_code' => 'UIS', 'icao_code' => 'SAOU', 'name' => 'SAN LUIS/BRIGADIER MAYOR D. CESAR RAUL OJEDA'],
+    ['anac_code' => 'SMM', 'icao_code' => null, 'name' => 'SAN MIGUEL DEL MONTE/BAHIA AGRADABLE'],
+    ['anac_code' => 'SRA', 'icao_code' => 'SAMR', 'name' => 'SAN RAFAEL/S. A. SANTIAGO GERMANO'],
+    ['anac_code' => 'SCZ', 'icao_code' => 'SAWU', 'name' => 'SANTA CRUZ'],
+    ['anac_code' => 'SVO', 'icao_code' => 'SAAV', 'name' => 'SANTA FE/SAUCE VIEJO'],
+    ['anac_code' => 'OSA', 'icao_code' => 'SAZR', 'name' => 'SANTA ROSA'],
+    ['anac_code' => 'TRH', 'icao_code' => 'SANR', 'name' => 'TERMAS DE RIO HONDO'],
+    ['anac_code' => 'TRE', 'icao_code' => 'SAVT', 'name' => 'TRELEW/ALMIRANTE ZAR'],
+    ['anac_code' => 'TUC', 'icao_code' => 'SANT', 'name' => 'TUCUMAN/TEN. BENJAMIN MATIENZO'],
+    ['anac_code' => 'USU', 'icao_code' => 'SAWH', 'name' => 'USHUAIA/MALVINAS ARGENTINAS'],
+    ['anac_code' => 'SRC', 'icao_code' => 'SAOS', 'name' => 'VALLE DEL CONLARA'],
+    ['anac_code' => 'VIE', 'icao_code' => 'SAVV', 'name' => 'VIEDMA/GOBERNADOR CASTELLO'],
+    ['anac_code' => 'RYD', 'icao_code' => null, 'name' => 'VILLA REYNOLDS'],
+];

@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Ai\Agents\NotamDecoderAgent;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use RuntimeException;
 use Throwable;
 
 class AiNotamDecoderService
@@ -40,8 +39,11 @@ class AiNotamDecoderService
             return null;
         }
 
+        // No key configured is a deployment state, not an error: NotamEnricher
+        // falls back to the offline dictionary decoder. Only genuine provider
+        // failures (thrown from the agent call below) propagate as exceptions.
         if (blank(config('ai.providers.openrouter.key'))) {
-            throw new RuntimeException('OpenRouter API key is not configured (OPENROUTER_API_KEY).');
+            return null;
         }
 
         $cacheKey = 'notam:ai-decode:es:v'.self::PROMPT_VERSION.':'.sha1($textEn.'|'.$textEs);
@@ -106,7 +108,7 @@ class AiNotamDecoderService
 
         if ($textEs !== '') {
             $prompt .= "\n\nFor reference only, ANAC's own Spanish version of this NOTAM ".
-                "(it may be incomplete or partially untranslated, but can help with wording ".
+                '(it may be incomplete or partially untranslated, but can help with wording '.
                 "for terms not covered above):\n{$textEs}";
         }
 

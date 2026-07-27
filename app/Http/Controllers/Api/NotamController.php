@@ -4,32 +4,35 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\NotamIndexRequest;
+use App\Http\Resources\NotamResource;
 use App\Services\AnacNotamService;
+use App\Services\NotamEnricher;
+use App\Support\AirportResolver;
 use Illuminate\Http\JsonResponse;
 use Throwable;
 
 class NotamController extends Controller
 {
-    public function __construct(protected AnacNotamService $anac) {}
+    public function __construct(
+        protected AnacNotamService $anac,
+        protected NotamEnricher $enricher,
+        protected AirportResolver $airports,
+    ) {}
 
     /**
-     * GET /api/notams?aerodromo=EZE
+     * GET /api/notams?aerodromo=EZE[&decode=false]
+     *
+     * `decode=false` returns the raw scraped NOTAMs without the Spanish
+     * decoding, skipping the AI calls entirely — useful for clients that only
+     * need the source text and shouldn't pay the latency or the token cost.
      */
     public function index(NotamIndexRequest $request): JsonResponse
     {
-        $indicator = $this->anac->resolveIndicator($request->indicator());
+        $indicator = $this->airports->resolve($request->indicator());
 
-        try {
-            $knownAirports = $this->anac->getKnownAirports();
-        } catch (Throwable $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'No se pudo contactar al servicio de NOTAM de ANAC en este momento.',
-            ], 502);
-        }
-
-        if (! array_key_exists($indicator, $knownAirports)) {
+        // The registry is a local table now, so establishing whether an
+        // aerodrome exists no longer depends on ANAC being reachable.
+        if (! $this->airports->exists($indicator)) {
             return response()->json([
                 'message' => "El indicador '{$indicator}' no es un aeródromo reconocido.",
                 'aerodromo' => $indicator,
@@ -42,15 +45,21 @@ class NotamController extends Controller
             report($e);
 
             return response()->json([
-                'message' => 'No se pudo obtener la información de ANAC o generar la decodificación por IA en este momento.',
+                'message' => 'No se pudo obtener la información de NOTAM de ANAC en este momento.',
             ], 502);
+        }
+
+        // Enrichment never throws — it degrades to the offline dictionary and
+        // then to null — so it stays outside the try/catch above deliberately.
+        if ($request->wantsDecoding()) {
+            $notams = $this->enricher->enrich($notams);
         }
 
         return response()->json([
             'aerodromo' => $indicator,
-            'nombre' => $knownAirports[$indicator],
+            'nombre' => $this->airports->nameFor($indicator),
             'cantidad' => count($notams),
-            'notams' => $notams,
+            'notams' => NotamResource::collection($notams)->resolve(),
         ]);
     }
 

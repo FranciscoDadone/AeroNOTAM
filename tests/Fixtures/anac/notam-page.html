@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html>
+
+    <head>
+        <meta charset="utf-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="stylesheet" href="/ui/js/bootstrap/3.3.7/css/bootstrap.min.css" />
+        <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.3.1/css/all.css" integrity="sha384-mzrmE5qonljUremFsqc01SB46JvROS7bZs3IO2EmfFsd15uHvIt+Y8vEf7N7fWAU" crossorigin="anonymous" />
+        <link rel="stylesheet" href="/ui/poncho/css/roboto-fontface.css" />
+        <link rel="stylesheet" href="/ui/poncho/css/poncho.css" />
+        <link rel="stylesheet" href="/ui/css/master/custom.css" />
+        <title>Avisos a los aviadores (NOTAM) - ANAC Argentina</title>
+        <script src="/ui/js/jquery-2.2.4.min.js"></script>
+        <script src="/ui/js/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="/ui/js/datatable/momentjs/2.18.1/moment.min.js"></script>
+<link rel="stylesheet" href="/ui/js/datatable/1.10.19/jquery.dataTables.min.css" />
+<link rel="stylesheet" href="/ui/js/datatable/1.10.19/dataTables.bootstrap.min.css" />
+<link rel="stylesheet" href="/ui/js/datatable/buttons/1.5.2/buttons.dataTables.min.css" />
+<link rel="stylesheet" href="/ui/js/datatable/responsive/2.2.3/responsive.dataTables.min.css" />
+<link rel="stylesheet" href="/ui/js/datatable/select2/4.0.6/css/select2.min.css" />
+<script src="/ui/js/datatable/1.10.19/jquery.dataTables.min.js"></script>
+
+
+<!--<script src="/ui/js/datatable/1.10.19/dataTables.bootstrap.min.js"></script> -->
+<script src="/ui/js/datatable/responsive/2.2.3/dataTables.responsive.min.js"></script>
+<script src="/ui/js/datatable/buttons/1.5.2/dataTables.buttons.min.js"></script>
+<script src="/ui/js/datatable/buttons/1.5.2/buttons.html5.min.js"></script>
+<script src="/ui/js/datatable/buttons/1.5.2/buttons.colVis.min.js"></script>
+<script src="/ui/js/datatable/libs/jszip.min.js"></script>
+<script src="/ui/js/datatable/libs/pdfmake.min.js"></script>
+<script src="/ui/js/datatable/libs/vfs_fonts.js"></script>
+<script src="/ui/js/datatable/plugins/1.10.16/datetime-moment.js"></script>
+
+<script src="/ui/js/datatable/select2/4.0.6/js/select2.min.js"></script>
+<script src="/ui/js/datatable/select2/4.0.6/js/i18n/es.js"></script>
+
+
+<link rel="stylesheet" href="/ui/css/redmond/jquery-ui.css" />
+<link rel="stylesheet" href="/ui/css/redmond/jquery.ui.theme.css" />
+<script src="/ui/js/jquery-ui-1.9.2.custom.min.js"></script>
+<script src="/ui/js/jquery.ui.datepicker-es.js"></script>
+
+<script src="/ui/js/datatable/listjs/1.5.0/list.min.js"></script>
+
+<script src="/ui/js/datatable/plugins/accent-neutralise.js"></script>
+
+<!-- Add mousewheel plugin (this is optional) -->
+<script type="text/javascript" src="/ui/fancybox/lib/jquery.mousewheel-3.0.6.pack.js"></script>
+
+<!-- Add fancyBox -->
+<link rel="stylesheet" href="/ui/fancybox/source/jquery.fancybox.css?v=2.1.4" type="text/css" media="screen" />
+<script type="text/javascript" src="/ui/fancybox/source/jquery.fancybox.pack.js?v=2.1.4"></script>
+
+<!-- Optionally add helpers - button, thumbnail and/or media -->
+<link rel="stylesheet" href="/ui/fancybox/source/helpers/jquery.fancybox-buttons.css?v=1.0.5" type="text/css" media="screen" />
+<script type="text/javascript" src="/ui/fancybox/source/helpers/jquery.fancybox-buttons.js?v=1.0.5"></script>
+<script type="text/javascript" src="/ui/fancybox/source/helpers/jquery.fancybox-media.js?v=1.0.5"></script>
+
+<link rel="stylesheet" href="/ui/fancybox/source/helpers/jquery.fancybox-thumbs.css?v=1.0.7" type="text/css" media="screen" />
+<script type="text/javascript" src="/ui/fancybox/source/helpers/jquery.fancybox-thumbs.js?v=1.0.7"></script>
+
+<link rel="stylesheet"  href="/ui/js/toggle/css/bootstrap-toggle.css" type="text/css" />
+<script type="text/javascript" src="/ui/js/toggle/js/bootstrap-toggle.js"></script>    <!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-SR3CKD1CLW"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-SR3CKD1CLW');
+</script>
+</head>
+
+<body>
+
+    <nav class="navbar navbar-default">
+        <div class="container">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#bs-main-navbar" aria-expanded="false">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="../"><img src="/ui/images/ANAC_logo_vector.svg" id="anac_logo" height="37" alt="ANAC" /></a>
+            </div>
+            <div class="collapse navbar-collapse" id="bs-main-navbar">
+                <ul class="nav navbar-nav navbar-right">
+                    <li class="dropdown">
+                        <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false">Productos de Información Aeronáutica <span class="caret"></span></a>
+                        <ul class="dropdown-menu">
+                            <li><a href="/aip">Publicación de Información Aeronáutica</a></li>
+                            <li><a href="/amdt">Enmiendas a la AIP</a></li>
+                            <li><a href="/sup">Suplementos a la AIP</a></li>
+                            <li><a href="/aic">Circulares de Información Aeronáutica</a></li>
+                            <li role="separator" class="divider"></li>
+                            <li><a href="/notam">NOTAM</a></li>
+                        </ul>
+                    </li>
+                                        <li><a href="/madhel/" target="_blank">MADHEL</a></li>
+                    <li>
+                                        </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    <section class="jumbotron" style="background-image: url('/ui/images/web-header-wac.png');">
+        <div class="container text-center jumbotron_body">
+            <h1>Información Aeronáutica</h1>
+        </div>
+        <div class="overlay"></div>
+    </section>
+
+    <div id="mainbox" class="container">
+        <div class="row">
+            <div class="col-xs-12"> </div>
+        </div>
+        <div class="row">
+            <div class="col-xs-12">
+                <h1>NOTAM – Aviso a los aviadores</h1>
+<p>Información de carácter de temporal e importante para las operaciones aéreas.</p>
+<h3>Series</h3>
+<p>La República Argentina utiliza las series</p>
+<ul>
+    <li>Serie A – Novedades de instalaciones o servicios de uso internacional</li>
+    <li>Serie C – Novedades de instalaciones o servicios de uso nacional</li>
+    <li>Serie S – Snowtam, novedades respecto a hielo, nieve y/o agua</li>
+    <li>Serie V – Ashtam, novedades respecto a cenizas volcánicas</li>
+</ul>
+<h3>Consulta de Notam(s)</h3>
+<p>Usted podrá consultar los Notam(s) activos de las series A y C en el formulario que se presenta a continuación, con las siguientes particularidades:</p>
+<ul>
+    <li>Los Horarios correspondientes a la última actualización y a la impresión están expresados en hora local Argentina.</li>
+    <li>Los horarios de los NOTAM(s) se expresan en Tiempo Universal Coordinado (UTC).</li>
+    <li>Los datos se obtienen de la Oficina Notam Internacional (NOF), dependencia perteneciente al prestador de Servicio de Navegación Aérea <a href="https://www.eana.com.ar/" target="_blank">EANA S.E.</a> y son actualizados en forma continua. Si bien la actualización es regular, se recomienda observar el horario de la última actualización antes de efectuar la consulta,</li>
+    <li>El control de selección muestra únicamente lugares que registran notams activos. Los lugares sin novedades activas no se incluyen en la lista.</li>
+    <li><span style="font-weight: bold;">IMPORTANTE</span>: Los Notam(s) presentados en este sitio son a modo de referencia y no reemplazan la información previa al vuelo obtenida en las oficinas ARO-AIS de los aeródromos. Las oficinas ARO-AIS cuentan con personal idóneo que lo asesorará sobre este y otros aspectos importantes para la seguridad de su vuelo. El informe resultante no debe utilizarse como Boletín Previo al Vuelo (PIB)</li>
+</ul>
+<div class="alert alert-danger">
+    <h5 id="pibupdate" class="text-center">Última actualización: 26 Jul 2026 11:30</h5>
+</div>
+<div class="alert alert-info">
+    <!-- <div class="form-group"> -->
+    <div>
+        <select class="form-control" id="locations" type="text">
+            <option>Seleccione un lugar</option>
+                            <option value="AER">AEROPARQUE J. NEWBERY</option>
+                            <option value="AGR">ALTA GRACIA/COMANDANTE EDMUNDO OLSVALDO
+WEISS</option>
+                            <option value="---">AVISOS A TODAS LAS FIRS</option>
+                            <option value="-VF">AVISOS FIR COMODORO</option>
+                            <option value="-CF">AVISOS FIR CORDOBA</option>
+                            <option value="-EF">AVISOS FIR EZEIZA</option>
+                            <option value="-RR">AVISOS FIR RESISTENCIA</option>
+                            <option value="BCA">BAHIA BLANCA/CTE ESPORA</option>
+                            <option value="BAL">BALCARCE</option>
+                            <option value="CAT">CATAMARCA</option>
+                            <option value="IGU">CATARATAS DEL IGUAZU / M. C. E. KRAUSE</option>
+                            <option value="CRV">COMODORO RIVADAVIA/GRAL. E. MOSCONI</option>
+                            <option value="CDU">CONCEPCI&Oacute;N DEL URUGUAY</option>
+                            <option value="FMA">CORDOBA/CAPITAN D.OMAR DARIO GELARDI</option>
+                            <option value="ESC">CORDOBA/ESCUELA DE AVIACION MILITAR</option>
+                            <option value="CBA">CORDOBA/ING. AER. A. L. V. TARAVELLA</option>
+                            <option value="CRR">CORRIENTES</option>
+                            <option value="CZU">CURUZU CUATIA/AEROCLUB</option>
+                            <option value="ECA">EL CALAFATE</option>
+                            <option value="PAL">EL PALOMAR</option>
+                            <option value="ESQ">ESQUEL/BRIGADIER GENERAL ANTONIO PARODI</option>
+                            <option value="EZE">EZEIZA/MINISTRO PISTARINI</option>
+                            <option value="GPI">GENERAL PICO</option>
+                            <option value="GOY">GOYA</option>
+                            <option value="GUA">GUALEGUAYCHU</option>
+                            <option value="JUJ">JUJUY/GOBERNADOR GUZMAN</option>
+                            <option value="PTA">LA PLATA</option>
+                            <option value="LAR">LA RIOJA/CAP. VICENTE A. ALMONACID</option>
+                            <option value="FLO">LAS FLORES</option>
+                            <option value="MLG">MALARG&Uuml;E</option>
+                            <option value="MDP">MAR DEL PLATA/ASTOR PIAZZOLLA</option>
+                            <option value="ENO">MARIANO MORENO</option>
+                            <option value="MAT">MATANZA</option>
+                            <option value="DOZ">MENDOZA/EL PLUMERILLO</option>
+                            <option value="NEU">NEUQUEN/PRESIDENTE PERON</option>
+                            <option value="LIO">NUEVE DE JULIO</option>
+                            <option value="LIB">PASO DE LOS LIBRES</option>
+                            <option value="PTM">PERITO MORENO</option>
+                            <option value="POS">POSADAS</option>
+                            <option value="DRY">PUERTO MADRYN/EL TEHUELCHE</option>
+                            <option value="PDI">PUNTA INDIO</option>
+                            <option value="ILM">QUILMES</option>
+                            <option value="RAI">RANCHOS/LA IGUALDAD</option>
+                            <option value="RTA">RECONQUISTA</option>
+                            <option value="SIS">RESISTENCIA</option>
+                            <option value="RGR">RIO GALLEGOS/RIO CHICO</option>
+                            <option value="GRA">RIO GRANDE</option>
+                            <option value="ROS">ROSARIO/ ISLAS MALVINAS</option>
+                            <option value="SAL">SALTA</option>
+                            <option value="GBL">SALTA/GENERAL BELGRANO</option>
+                            <option value="SLT">SALTO</option>
+                            <option value="BAR">SAN CARLOS DE BARILOCHE</option>
+                            <option value="FDO">SAN FERNANDO</option>
+                            <option value="SJR">SAN JAVIER/AEROCLUB</option>
+                            <option value="JUA">SAN JUAN</option>
+                            <option value="UIS">SAN LUIS/BRIGADIER MAYOR D. CESAR RAUL
+OJEDA</option>
+                            <option value="SMM">SAN MIGUEL DEL MONTE/BAHIA AGRADABLE</option>
+                            <option value="SRA">SAN RAFAEL/S. A. SANTIAGO GERMANO</option>
+                            <option value="SCZ">SANTA CRUZ</option>
+                            <option value="SVO">SANTA FE/SAUCE VIEJO</option>
+                            <option value="OSA">SANTA ROSA</option>
+                            <option value="TRH">TERMAS DE RIO HONDO</option>
+                            <option value="TRE">TRELEW/ALMIRANTE ZAR</option>
+                            <option value="TUC">TUCUMAN/TEN. BENJAMIN MATIENZO</option>
+                            <option value="USU">USHUAIA/MALVINAS ARGENTINAS</option>
+                            <option value="SRC">VALLE DEL CONLARA</option>
+                            <option value="VIE">VIEDMA/GOBERNADOR CASTELLO</option>
+                            <option value="RYD">VILLA REYNOLDS</option>
+                    </select>
+    </div>
+</div>
+<div class="panel panel-default">
+    <div class="loading"></div>
+    <div class="ajaxbody">
+        <div id="pib"></div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    $("#locations").select2();
+    var lugares = document.getElementById("locations");
+    $(lugares).change(
+            function () {
+                $('.loading').show();
+                $('.ajaxbody').hide();
+                $.ajax({
+                    url: "/notam/pib",
+                    type: "POST",
+                    dataType: "html",
+                    data: {
+                        indicador: $(lugares).val()
+                    }
+                }).done(function (html) {
+                    tabla = document.getElementById('pib');
+                    $(tabla).find('table').remove();
+                    $(tabla).html(html);
+                    $('#datatable').DataTable({
+                        pageLength: 500,
+                        ordering: false,
+                        responsive: true,
+                        dom: 'ft', //fBtlip
+                        buttons: [
+                            'copy', 'excel', 'csv', {
+                                extend: 'pdfHtml5',
+                                orientation: 'portrait',
+                                pageSize: 'LEGAL'
+                            }
+                        ],
+                        language: {
+                            url: "/ui/js/datatable/plugins/1.10.16/Spanish.json"
+                        }
+                    });
+                    $('.loading').hide();
+                    $('.ajaxbody').fadeIn('slow');
+                });
+            });
+
+</script>
+            </div>
+        </div>
+    </div>
+
+    <footer class="main-footer">
+        <div class="container">
+            <div class="row">
+                <div class="col-xs-12 text-center">
+                    <p>Administración Nacional de Aviación Civil | <a href="http://www.anac.gob.ar" target="_blank">ANAC</a> <a href="mailto://dianac@anac.gob.ar" target="_blank"><span class="fa fa-envelope"></span></a></p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+</body>
+
+</html>

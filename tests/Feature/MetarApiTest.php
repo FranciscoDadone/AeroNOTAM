@@ -78,8 +78,25 @@ it('404s for an aerodrome with no ICAO code', function () {
     Http::assertNothingSent();
 });
 
-it('502s when the SMN is unreachable', function () {
-    fakeSmn(Http::response('down', 503));
+it('serves the relayed report when the SMN is blocking', function () {
+    fakeSmn(Http::response(smnFixture('challenge.html'), 403));
+
+    $this->getJson('/api/metar?aerodromo=EZE')
+        ->assertOk()
+        ->assertJsonPath('metars.0.fuente', 'noaa')
+        ->assertJsonPath('metars.0.metar', 'METAR SAEZ 271700Z 33007KT 9999 BKN014 OVC017 17/14 Q1007 NOSIG');
+});
+
+it('reports the source that answered', function () {
+    fakeSmn();
+
+    $this->getJson('/api/metar?aerodromo=EZE')
+        ->assertOk()
+        ->assertJsonPath('metars.0.fuente', 'smn');
+});
+
+it('502s only when every source is unreachable', function () {
+    fakeSmn(Http::response('down', 503), Http::response('down', 503));
 
     $this->getJson('/api/metar?aerodromo=EZE')->assertStatus(502);
 });

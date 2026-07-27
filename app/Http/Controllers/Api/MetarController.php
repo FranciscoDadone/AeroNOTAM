@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\MetarIndexRequest;
 use App\Http\Resources\MetarResource;
 use App\Services\MetarEnricher;
-use App\Services\SmnMetarService;
+use App\Services\MetarService;
 use App\Support\AirportResolver;
 use Illuminate\Http\JsonResponse;
 use Throwable;
@@ -14,7 +14,7 @@ use Throwable;
 class MetarController extends Controller
 {
     public function __construct(
-        protected SmnMetarService $smn,
+        protected MetarService $metars,
         protected MetarEnricher $enricher,
         protected AirportResolver $airports,
     ) {}
@@ -51,12 +51,12 @@ class MetarController extends Controller
         }
 
         try {
-            $metars = $this->smn->getMetars($icao);
+            $metars = $this->metars->getMetars($icao);
         } catch (Throwable $e) {
             report($e);
 
             return response()->json([
-                'message' => 'No se pudo obtener la información de METAR del SMN en este momento.',
+                'message' => 'No se pudo obtener la información de METAR en este momento.',
             ], 502);
         }
 

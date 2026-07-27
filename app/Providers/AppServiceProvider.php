@@ -3,6 +3,9 @@
 namespace App\Providers;
 
 use App\Contracts\WhatsappSender;
+use App\Services\MetarService;
+use App\Services\NoaaMetarSource;
+use App\Services\SmnMetarSource;
 use App\Services\TwilioWhatsappSender;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -17,6 +20,14 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(WhatsappSender::class, TwilioWhatsappSender::class);
+
+        // Order is the failover order, and it is deliberate: the SMN is the
+        // authority for Argentine aerodromes, so it is asked first and NOAA
+        // only relays the same reports when the SMN cannot be reached.
+        $this->app->singleton(MetarService::class, fn ($app) => new MetarService([
+            $app->make(SmnMetarSource::class),
+            $app->make(NoaaMetarSource::class),
+        ]));
     }
 
     /**

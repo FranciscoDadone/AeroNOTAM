@@ -22,6 +22,11 @@ class MetarResource extends JsonResource
             'observado' => $this->resource->observedAt,
             'especial' => $this->resource->isSpeci(),
 
+            // Who actually answered: "smn", or "noaa" when the SMN was
+            // unreachable and the same report came through the international
+            // exchange instead.
+            'fuente' => $this->resource->source,
+
             // The report verbatim, in the international standard form.
             'metar' => $this->resource->raw,
 

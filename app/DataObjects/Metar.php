@@ -14,6 +14,7 @@ final readonly class Metar
 {
     /**
      * @param  string  $observedAt  Raw "DD - HH:MM" as the SMN prints it (UTC).
+     * @param  string  $source  Which source answered: 'smn' or 'noaa'.
      * @param  array<int, string>  $explanation  One plain-Spanish line per decoded group.
      */
     public function __construct(
@@ -21,6 +22,7 @@ final readonly class Metar
         public string $airportName,
         public string $observedAt,
         public string $raw,
+        public string $source = 'smn',
         public array $explanation = [],
     ) {}
 
@@ -34,6 +36,7 @@ final readonly class Metar
             airportName: (string) ($row['airport_name'] ?? ''),
             observedAt: (string) ($row['observed_at'] ?? ''),
             raw: (string) ($row['raw'] ?? ''),
+            source: (string) ($row['source'] ?? 'smn'),
             explanation: $row['explanation'] ?? [],
         );
     }
@@ -48,8 +51,18 @@ final readonly class Metar
             airportName: $this->airportName,
             observedAt: $this->observedAt,
             raw: $this->raw,
+            source: $this->source,
             explanation: $explanation,
         );
+    }
+
+    /**
+     * Whether this observation reached us relayed through another service
+     * rather than read from the SMN directly.
+     */
+    public function isRelayed(): bool
+    {
+        return $this->source !== 'smn';
     }
 
     /**

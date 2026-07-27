@@ -47,7 +47,7 @@ class WhatsappBotService
         protected AnacNotamService $anac,
         protected NotamEnricher $enricher,
         protected AirportResolver $airports,
-        protected SmnMetarService $smn,
+        protected MetarService $metarService,
         protected MetarEnricher $metarEnricher,
     ) {}
 
@@ -120,7 +120,7 @@ class WhatsappBotService
         }
 
         try {
-            $metars = $this->smn->getMetars($icao);
+            $metars = $this->metarService->getMetars($icao);
         } catch (\Throwable $e) {
             report($e);
 
@@ -157,11 +157,12 @@ class WhatsappBotService
     protected function formatMetars(string $airportName, string $icao, array $metars): array
     {
         if ($metars === []) {
-            return ["El SMN no está publicando METAR para *{$airportName}* ({$icao}) en este momento."];
+            return ["No hay METAR publicado para *{$airportName}* ({$icao}) en este momento."];
         }
 
         $header = "🌦️ *{$airportName}* ({$icao})";
         $total = count($metars);
+        $credit = $this->sourceCredit($metars[0]);
         $budget = self::MAX_MESSAGE_LENGTH - mb_strlen($header) - 12;
 
         $parts = [];
@@ -189,7 +190,7 @@ class WhatsappBotService
 
             if ($i === $total - 1) {
                 $lines[] = '';
-                $lines[] = '_Fuente: Servicio Meteorológico Nacional_';
+                $lines[] = $credit;
             }
 
             foreach ($this->splitToFit(implode("\n", $lines), $budget) as $part) {
@@ -198,6 +199,19 @@ class WhatsappBotService
         }
 
         return $this->withHeader($header, $parts);
+    }
+
+    /**
+     * The SMN issues these reports either way — NOAA only relays them over the
+     * international exchange — so the credit names the SMN in both cases and
+     * mentions the relay only when there was one. Hiding the relay would be
+     * dishonest; leading with it would misattribute the observation.
+     */
+    protected function sourceCredit(Metar $metar): string
+    {
+        return $metar->isRelayed()
+            ? '_Fuente: Servicio Meteorológico Nacional (vía NOAA)_'
+            : '_Fuente: Servicio Meteorológico Nacional_';
     }
 
     /**

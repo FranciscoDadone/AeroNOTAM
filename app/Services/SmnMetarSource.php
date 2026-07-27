@@ -2,85 +2,64 @@
 
 namespace App\Services;
 
-use App\DataObjects\Metar;
-use Illuminate\Support\Facades\Cache;
+use App\Contracts\MetarSource;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 use Symfony\Component\DomCrawler\Crawler;
 
 /**
- * Fetches METAR/SPECI observations from the Servicio Meteorológico Nacional.
+ * Reads METAR observations from the Servicio Meteorológico Nacional — the
+ * authoritative publisher for Argentine aerodromes, and therefore the source
+ * MetarService tries first.
  *
  * www.smn.gob.ar/metar is a shell page whose content is an iframe onto the
  * SMN's legacy "mensajes" application, so that application is what this talks
  * to — same data, same origin, one fewer redirect to parse.
  *
- * Returns raw observations. The Spanish explanation is applied separately by
- * MetarDecoder, mirroring how AnacNotamService keeps NOTAM scraping apart from
- * NOTAM decoding: the observation is the safety-relevant payload and must
- * survive anything going wrong downstream of it.
+ * Caching and failover live in MetarService, not here: this class's only job is
+ * to answer with the SMN's observations or admit it could not reach them.
  */
-class SmnMetarService
+class SmnMetarSource implements MetarSource
 {
     protected string $baseUrl;
-
-    protected int $ttl;
 
     protected int $attempts;
 
     public function __construct()
     {
         $this->baseUrl = rtrim(config('services.smn.base_url'), '/');
-        $this->ttl = (int) config('services.smn.metar_ttl');
         $this->attempts = (int) config('services.smn.attempts');
     }
 
-    /**
-     * Current observations for an ICAO station code, most recent first as the
-     * SMN orders them.
-     *
-     * @return array<int, Metar>
-     */
-    public function getMetars(string $icaoCode): array
+    public function name(): string
     {
-        $icaoCode = strtoupper(trim($icaoCode));
-
-        // Plain arrays into the cache, hydrated on the way out — a serialized
-        // object would break on the next deploy that changes the class shape.
-        $rows = Cache::remember(
-            "smn_metar:{$icaoCode}",
-            $this->ttl,
-            fn () => $this->fetchMetars($icaoCode),
-        );
-
-        return array_map(Metar::fromArray(...), $rows);
+        return 'smn';
     }
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    protected function fetchMetars(string $icaoCode): array
+    public function fetch(string $icaoCode): array
     {
         $body = $this->get([
             'observacion' => 'metar',
             'operacion' => 'consultar',
             'tipoEstacion' => 'OACI',
-            'CODIGO' => $icaoCode,
+            'CODIGO' => strtoupper(trim($icaoCode)),
         ]);
 
         return $this->parseMetarTables($body);
     }
 
     /**
-     * The SMN sits behind Cloudflare, which intermittently answers with an
-     * interstitial challenge instead of the page. The challenge is not tied to
-     * this request being wrong — the identical request succeeds moments later —
-     * so a small number of spaced retries clears it.
+     * The SMN sits behind Cloudflare, which answers with an interstitial
+     * instead of the page for stretches at a time.
      *
-     * Deliberately few, and deliberately spaced: Cloudflare tightens as request
-     * volume rises, so retrying hard makes the block worse rather than better.
-     * The real defence is the cache above, which keeps steady-state traffic to
-     * a handful of requests per station per hour.
+     * The retries here only cover the isolated challenge. They deliberately do
+     * not try to outlast a sustained block: the block tightens the more it is
+     * hit, so hammering it keeps it alive rather than clearing it. Getting past
+     * a real block is MetarService's job — it stops asking for a while and
+     * falls through to the next source.
      *
      * @param  array<string, string>  $query
      */

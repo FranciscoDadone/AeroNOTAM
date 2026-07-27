@@ -62,15 +62,38 @@ function smnFixture(string $name): string
 }
 
 /**
- * Stub the SMN's METAR query. Pass $response to override it — most usefully
- * with the captured Cloudflare interstitial (smnFixture('challenge.html')),
- * which the service has to recognise and retry past.
+ * Stub both METAR sources at once: the SMN's query and NOAA's relay.
+ *
+ * Faking both by default matters — the point of the failover is that a blocked
+ * SMN silently falls through to NOAA, so a test that stubbed only one would
+ * quietly reach the live network for the other.
+ *
+ * Pass $smn to override the SMN's response, most usefully with the captured
+ * Cloudflare interstitial (smnFixture('challenge.html')), and $noaa likewise.
  */
-function fakeSmn(mixed $response = null): void
+function fakeSmn(mixed $smn = null, mixed $noaa = null): void
 {
     Http::fake([
-        '*/mensajes/index.php*' => $response ?? Http::response(smnFixture('metar-saez.html')),
+        '*/mensajes/index.php*' => $smn ?? Http::response(smnFixture('metar-saez.html')),
+        '*aviationweather.gov*' => $noaa ?? Http::response(noaaFixture()),
     ]);
+}
+
+/**
+ * NOAA's JSON shape, carrying the same report the SMN publishes — as it is
+ * relayed over the international exchange, i.e. without the SMN's national
+ * "RMK" group or the trailing "=".
+ *
+ * @return array<int, array<string, mixed>>
+ */
+function noaaFixture(string $raw = 'METAR SAEZ 271700Z 33007KT 9999 BKN014 OVC017 17/14 Q1007 NOSIG'): array
+{
+    return [[
+        'icaoId' => 'SAEZ',
+        'name' => 'Buenos Aires/Pistarini Arpt, B, AR',
+        'reportTime' => '2026-07-27T17:00:00.000Z',
+        'rawOb' => $raw,
+    ]];
 }
 
 /**

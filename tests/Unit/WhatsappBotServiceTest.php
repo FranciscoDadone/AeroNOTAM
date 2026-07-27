@@ -211,18 +211,35 @@ it('says so when the aerodrome has no ICAO code to look up', function () {
     Http::assertNothingSent();
 });
 
-it('reports a service problem when the SMN is unreachable', function () {
+/**
+ * The SMN blocks us for stretches at a time. The user still gets their METAR —
+ * the same SMN-issued report, relayed by NOAA — and the credit says so rather
+ * than passing the relay off as a direct read.
+ */
+it('still answers with the metar when the SMN is blocking', function () {
     fakeAnac();
-    fakeSmn(Http::response('down', 503));
+    fakeSmn(Http::response(smnFixture('challenge.html'), 403));
+
+    $reply = bot()->reply('metar eze')[0];
+
+    expect($reply)
+        ->toContain('METAR SAEZ 271700Z')
+        ->toContain('Servicio Meteorológico Nacional (vía NOAA')
+        ->not->toContain('no pude obtener');
+});
+
+it('reports a service problem only when every source is unreachable', function () {
+    fakeAnac();
+    fakeSmn(Http::response('down', 503), Http::response('down', 503));
 
     expect(bot()->reply('metar eze')[0])->toContain('no pude obtener su METAR');
 });
 
-it('says so when the SMN publishes no observation', function () {
+it('says so when there is no observation published', function () {
     fakeAnac();
     fakeSmn(Http::response(smnFixture('metar-empty.html')));
 
-    expect(bot()->reply('metar eze')[0])->toContain('no está publicando METAR');
+    expect(bot()->reply('metar eze')[0])->toContain('No hay METAR publicado');
 });
 
 it('offers both notams and metar in the help text', function () {

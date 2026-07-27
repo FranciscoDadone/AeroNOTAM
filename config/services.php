@@ -41,19 +41,34 @@ return [
         'notams_ttl' => env('ANAC_NOTAM_TTL', 300),
     ],
 
+    'metar' => [
+        // METARs are issued hourly (SPECIs in between), so a short cache still
+        // serves current data while keeping request volume low — which is what
+        // actually keeps us out of the SMN's bot challenge.
+        'ttl' => env('METAR_TTL', 600),
+
+        // How long to leave a source alone after it fails. The SMN's challenge
+        // tightens the more it is hit, so backing off is what lets the block
+        // expire; meanwhile the next source answers. Set to 0 to disable.
+        'source_cooldown' => env('METAR_SOURCE_COOLDOWN', 900),
+    ],
+
     'smn' => [
         // www.smn.gob.ar/metar is an iframe onto this legacy application; it
         // is the same data one hop closer.
         'base_url' => env('SMN_METAR_BASE_URL', 'https://ssl.smn.gob.ar'),
 
-        // METARs are issued hourly (SPECIs in between), so a short cache still
-        // serves current data while keeping us well clear of the rate limiting
-        // that sits in front of the SMN.
-        'metar_ttl' => env('SMN_METAR_TTL', 600),
+        // Retries for Cloudflare's isolated interstitial only. Kept low on
+        // purpose: retrying hard tightens the block rather than clearing it,
+        // and a sustained block is handled by failing over, not by insisting.
+        'attempts' => env('SMN_METAR_ATTEMPTS', 2),
+    ],
 
-        // Retries for Cloudflare's intermittent interstitial. Kept low on
-        // purpose: retrying hard tightens the block rather than clearing it.
-        'attempts' => env('SMN_METAR_ATTEMPTS', 3),
+    'noaa' => [
+        // Fallback for when the SMN is blocking us. Serves the same
+        // SMN-issued reports, relayed over the WMO OPMET exchange.
+        'base_url' => env('NOAA_METAR_BASE_URL', 'https://aviationweather.gov'),
+        'hours' => env('NOAA_METAR_HOURS', 2),
     ],
 
     'twilio' => [

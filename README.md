@@ -16,8 +16,9 @@ _"Viento del 030° (NNE) a 9 nudos. Visibilidad 10 km o más. Nubosidad rota
 ## Cómo funciona
 
 ```
-ANAC (scraping HTML) → AnacNotamService → NotamEnricher → API REST
-SMN  (scraping HTML) → SmnMetarService  → MetarEnricher → Bot WhatsApp
+ANAC (scraping HTML) → AnacNotamService                → NotamEnricher → API REST
+SMN  (scraping HTML) ┐                                                 → Bot WhatsApp
+NOAA (respaldo, API) ┴→ MetarService (caché + failover) → MetarEnricher
 ```
 
 - **`AnacNotamService`** habla con ANAC y parsea su HTML. Devuelve NOTAM crudos
@@ -28,7 +29,23 @@ SMN  (scraping HTML) → SmnMetarService  → MetarEnricher → Bot WhatsApp
   información de seguridad operacional y se sirve aunque la IA no esté.
 - Cada NOTAM expone `decoded_by` (`"ai"`, `"dictionary"` o `null`) para que el
   consumidor sepa qué calidad de decodificación recibió.
-- **`SmnMetarService`** y **`MetarEnricher`** son el equivalente para METAR.
+- **`MetarService`** y **`MetarEnricher`** son el equivalente para METAR.
+
+### Por qué hay dos fuentes de METAR
+
+El SMN es la autoridad para los aeródromos argentinos y se consulta primero.
+Pero tiene un Cloudflare adelante que nos bloquea por tramos (ver más abajo), y
+un informe meteorológico que nadie puede leer no sirve de nada.
+
+NOAA **no es otro dato**: los METAR de aeródromo se intercambian
+internacionalmente por los circuitos OPMET de la OMM, así que el reporte que
+NOAA sirve para SAEZ es el que emitió el SMN, relayado textual. El estándar
+existe justamente para que un reporte signifique lo mismo donde sea que se lea.
+
+Cada observación expone `fuente` (`"smn"` o `"noaa"`) y el bot lo aclara en el
+pie cuando hubo relay. La única diferencia práctica: los grupos `RMK`
+nacionales del SMN no siempre viajan por el intercambio, así que un reporte
+relayado puede venir un poco más corto.
 
 ### Por qué el METAR no usa IA
 
@@ -76,6 +93,12 @@ lista de líneas (`explicacion`), una por grupo decodificado y en el orden en
 que aparecen en el reporte. El crudo nunca se omite: es la forma estándar
 internacional contra la que un piloto puede contrastar cualquier otra fuente.
 
+Se devuelve **una sola observación: la vigente**. Un METAR queda superado en
+cuanto se emite el siguiente, y las fuentes no coinciden en cuánto historial
+entregan — el SMN manda sólo la última, NOAA un par de horas. `MetarService`
+normaliza eso; si no, la respuesta dependería de qué fuente contestó y quedaría
+una lectura vieja al lado de la vigente sin nada que las distinga.
+
 Los aeródromos sin código OACI dan 404 en `/metar` (no 502): el SMN indexa las
 observaciones sólo por ese código, así que reintentar nunca va a servir.
 
@@ -120,15 +143,29 @@ PRAGMA journal_mode=WAL;
 
 ## Nota operativa: el SMN detrás de Cloudflare
 
-`ssl.smn.gob.ar` tiene un Cloudflare adelante que, de forma intermitente,
-responde con un desafío en vez de la página. No es un rechazo del pedido: el
-mismo pedido funciona segundos después. `SmnMetarService` lo detecta por el
-cuerpo de la respuesta (llega tanto con 403 como con 200) y reintenta.
+`ssl.smn.gob.ar` tiene un Cloudflare adelante que responde con un desafío en vez
+de la página. A veces es un caso aislado — el mismo pedido funciona segundos
+después — y a veces es un bloqueo sostenido de horas contra la IP.
+`SmnMetarSource` lo detecta por el cuerpo de la respuesta (llega tanto con 403
+como con 200).
 
-Lo importante: **el bloqueo se endurece cuanto más se insiste**. Reintentar
-fuerte lo empeora. La defensa real es la caché (`SMN_METAR_TTL`, 10 minutos por
-defecto), que deja el tráfico en régimen en unos pocos pedidos por estación por
-hora — los METAR se emiten cada hora, así que no se pierde actualidad.
+Lo importante, medido: **el bloqueo se endurece cuanto más se insiste**. Con
+reintentos agresivos la tasa de éxito pasó de ~1 de cada 6 pedidos a 0 de 12.
+Insistir mantiene vivo el bloqueo propio.
+
+De ahí las tres capas, en orden de importancia:
+
+1. **Caché** (`METAR_TTL`, 10 min) — baja el volumen a unos pocos pedidos por
+   estación por hora. Los METAR se emiten cada hora, así que no se pierde
+   actualidad.
+2. **Cooldown** (`METAR_SOURCE_COOLDOWN`, 15 min) — cuando una fuente falla se
+   la deja en paz un rato. Sin esto, cada mensaje entrante dispara pedidos
+   nuevos y el bloqueo nunca expira. Es el arreglo del bloqueo que se
+   realimenta.
+3. **Failover a NOAA** — mientras el SMN descansa, contesta el respaldo.
+
+Los reintentos dentro de `SmnMetarSource` (`SMN_METAR_ATTEMPTS`, 2) cubren
+**sólo** el desafío aislado. Subirlos empeora las cosas.
 
 ## Desarrollo
 

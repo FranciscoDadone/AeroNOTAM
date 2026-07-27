@@ -32,6 +32,7 @@ class ProcessWhatsappMessage implements ShouldQueue
     public function __construct(
         protected string $from,
         protected string $body,
+        protected ?string $messageSid = null,
     ) {}
 
     /**
@@ -39,6 +40,8 @@ class ProcessWhatsappMessage implements ShouldQueue
      */
     public function handle(WhatsappBotService $bot, WhatsappSender $sender): void
     {
+        $this->indicateTyping($sender);
+
         try {
             $messages = $bot->reply($this->body);
         } catch (Throwable $e) {
@@ -53,6 +56,28 @@ class ProcessWhatsappMessage implements ShouldQueue
         // Send failures *do* propagate, so the queue retries delivery.
         foreach ($messages as $message) {
             $sender->send($this->from, $message);
+        }
+    }
+
+    /**
+     * Cosmetic only — building the answer takes seconds (ANAC, the SMN and the
+     * AI decoder), and the dots tell the user we're on it. A failure here must
+     * never cost the user their reply, so it's swallowed rather than retried.
+     */
+    protected function indicateTyping(WhatsappSender $sender): void
+    {
+        if (blank($this->messageSid)) {
+            return;
+        }
+
+        try {
+            $sender->indicateTyping($this->messageSid);
+        } catch (Throwable $e) {
+            Log::debug('No se pudo mostrar el indicador de escritura.', [
+                'from' => $this->from,
+                'message_sid' => $this->messageSid,
+                'exception' => $e->getMessage(),
+            ]);
         }
     }
 

@@ -18,6 +18,11 @@ class TwilioWhatsappSender implements WhatsappSender
         ]);
     }
 
+    public function indicateTyping(string $inboundMessageId): void
+    {
+        $this->client()->messaging->v2->typingIndicator->create('whatsapp', $inboundMessageId);
+    }
+
     /**
      * Built lazily so that merely resolving this class — which the container
      * does for anything type-hinting WhatsappSender — doesn't require Twilio

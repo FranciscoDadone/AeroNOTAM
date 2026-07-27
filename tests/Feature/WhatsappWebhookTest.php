@@ -34,6 +34,22 @@ it('queues a reply for a properly signed request', function () {
 });
 
 /**
+ * The SID travels with the job: it's what Twilio anchors the typing
+ * indicator to, and it's only available here.
+ */
+it('passes the inbound message sid through to the job', function () {
+    postSigned([
+        'From' => 'whatsapp:+5491111111111',
+        'Body' => 'ezeiza',
+        'MessageSid' => 'SM123',
+    ])->assertOk();
+
+    Queue::assertPushed(function (ProcessWhatsappMessage $job) {
+        return (new ReflectionProperty($job, 'messageSid'))->getValue($job) === 'SM123';
+    });
+});
+
+/**
  * The webhook is a public, unauthenticated URL — signature verification is
  * the only thing standing between it and anyone spending our AI budget.
  */

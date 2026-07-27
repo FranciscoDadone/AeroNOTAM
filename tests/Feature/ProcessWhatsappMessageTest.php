@@ -24,6 +24,39 @@ it('sends one message per notam to the original sender', function () {
         ->and($this->sender->bodies()[0])->toContain('A2187/2026');
 });
 
+it('shows the typing indicator while the reply is being built', function () {
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque', 'SM123'))
+        ->handle(app(WhatsappBotService::class), $this->sender);
+
+    expect($this->sender->typing)->toBe(['SM123']);
+});
+
+it('skips the typing indicator when the inbound message id is unknown', function () {
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque'))
+        ->handle(app(WhatsappBotService::class), $this->sender);
+
+    expect($this->sender->typing)->toBeEmpty()
+        ->and($this->sender->sent)->not->toBeEmpty();
+});
+
+/**
+ * The dots are decoration; the answer is not.
+ */
+it('still replies when the typing indicator cannot be shown', function () {
+    $sender = new class extends FakeWhatsappSender
+    {
+        public function indicateTyping(string $inboundMessageId): void
+        {
+            throw new RuntimeException('Twilio no disponible.');
+        }
+    };
+
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque', 'SM123'))
+        ->handle(app(WhatsappBotService::class), $sender);
+
+    expect($sender->sent)->toHaveCount(3);
+});
+
 /**
  * A failure while *building* the reply must still produce an answer — the
  * user is waiting in a chat and silence is the worst outcome.

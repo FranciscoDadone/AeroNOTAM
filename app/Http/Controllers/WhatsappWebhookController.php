@@ -26,8 +26,11 @@ class WhatsappWebhookController extends Controller
         $from = (string) $request->input('From');
         $body = (string) $request->input('Body');
 
+        // Twilio anchors the typing indicator to the message being answered.
+        $messageSid = (string) $request->input('MessageSid');
+
         if ($from !== '' && $body !== '') {
-            ProcessWhatsappMessage::dispatch($from, $body);
+            ProcessWhatsappMessage::dispatch($from, $body, $messageSid ?: null);
         }
 
         return response('<Response></Response>', Response::HTTP_OK)

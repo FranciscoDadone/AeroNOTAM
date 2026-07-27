@@ -12,6 +12,11 @@ class FakeWhatsappSender implements WhatsappSender
      */
     public array $sent = [];
 
+    /**
+     * @var array<int, string>
+     */
+    public array $typing = [];
+
     public int $attempts = 0;
 
     public function __construct(protected bool $shouldFail = false) {}
@@ -25,6 +30,15 @@ class FakeWhatsappSender implements WhatsappSender
         }
 
         $this->sent[] = ['to' => $to, 'body' => $body];
+    }
+
+    public function indicateTyping(string $inboundMessageId): void
+    {
+        if ($this->shouldFail) {
+            throw new RuntimeException('Twilio no disponible.');
+        }
+
+        $this->typing[] = $inboundMessageId;
     }
 
     /**

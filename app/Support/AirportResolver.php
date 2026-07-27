@@ -11,8 +11,8 @@ use Illuminate\Support\Str;
  * indicator.
  *
  * Previously the API resolved ICAO codes one way (AnacNotamService) and the
- * bot re-implemented the same walk another way (WhatsappNotamBotService),
- * which meant the two channels could disagree about what "SAEZ" means.
+ * bot re-implemented the same walk another way (WhatsappBotService), which
+ * meant the two channels could disagree about what "SAEZ" means.
  */
 class AirportResolver
 {
@@ -46,6 +46,18 @@ class AirportResolver
     public function nameFor(string $anacCode): ?string
     {
         return Airport::query()->where('anac_code', $anacCode)->value('name');
+    }
+
+    /**
+     * The OACI/ICAO code for an ANAC indicator — the inverse of resolve().
+     *
+     * Null for the aerodromes ANAC lists without one: they can still be looked
+     * up for NOTAMs, but the SMN indexes METARs by ICAO code only, so there is
+     * no observation to fetch for them.
+     */
+    public function icaoFor(string $anacCode): ?string
+    {
+        return Airport::query()->where('anac_code', $anacCode)->value('icao_code');
     }
 
     /**

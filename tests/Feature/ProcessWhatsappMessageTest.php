@@ -1,8 +1,8 @@
 <?php
 
 use App\Contracts\WhatsappSender;
-use App\Jobs\ProcessWhatsappNotamMessage;
-use App\Services\WhatsappNotamBotService;
+use App\Jobs\ProcessWhatsappMessage;
+use App\Services\WhatsappBotService;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\FakeWhatsappSender;
 
@@ -16,8 +16,8 @@ beforeEach(function () {
 });
 
 it('sends one message per notam to the original sender', function () {
-    (new ProcessWhatsappNotamMessage('whatsapp:+5491111111111', 'aeroparque'))
-        ->handle(app(WhatsappNotamBotService::class), $this->sender);
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque'))
+        ->handle(app(WhatsappBotService::class), $this->sender);
 
     expect($this->sender->sent)->toHaveCount(3)
         ->and($this->sender->sent[0]['to'])->toBe('whatsapp:+5491111111111')
@@ -29,10 +29,10 @@ it('sends one message per notam to the original sender', function () {
  * user is waiting in a chat and silence is the worst outcome.
  */
 it('apologises instead of going silent when the reply cannot be built', function () {
-    $bot = Mockery::mock(WhatsappNotamBotService::class);
+    $bot = Mockery::mock(WhatsappBotService::class);
     $bot->shouldReceive('reply')->andThrow(new RuntimeException('boom'));
 
-    (new ProcessWhatsappNotamMessage('whatsapp:+5491111111111', 'ezeiza'))
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'ezeiza'))
         ->handle($bot, $this->sender);
 
     expect($this->sender->sent)->toHaveCount(1)
@@ -43,12 +43,12 @@ it('apologises instead of going silent when the reply cannot be built', function
  * Delivery failures, by contrast, must propagate so the queue retries them.
  */
 it('propagates a delivery failure so the queue can retry', function () {
-    (new ProcessWhatsappNotamMessage('whatsapp:+5491111111111', 'aeroparque'))
-        ->handle(app(WhatsappNotamBotService::class), new FakeWhatsappSender(shouldFail: true));
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque'))
+        ->handle(app(WhatsappBotService::class), new FakeWhatsappSender(shouldFail: true));
 })->throws(RuntimeException::class);
 
 it('declares a retry policy', function () {
-    $job = new ProcessWhatsappNotamMessage('whatsapp:+5491111111111', 'eze');
+    $job = new ProcessWhatsappMessage('whatsapp:+5491111111111', 'eze');
 
     expect($job->tries)->toBe(3)
         ->and($job->backoff)->toBe([10, 60]);

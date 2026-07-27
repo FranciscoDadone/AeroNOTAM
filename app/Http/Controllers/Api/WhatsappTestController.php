@@ -3,14 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\WhatsappNotamBotService;
+use App\Services\WhatsappBotService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
 
 class WhatsappTestController extends Controller
 {
-    public function __construct(protected WhatsappNotamBotService $bot) {}
+    public function __construct(protected WhatsappBotService $bot) {}
 
     /**
      * GET /api/whatsapp/test?mensaje=hay+notams+en+ezeiza

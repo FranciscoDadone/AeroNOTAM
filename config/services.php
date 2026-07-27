@@ -41,6 +41,21 @@ return [
         'notams_ttl' => env('ANAC_NOTAM_TTL', 300),
     ],
 
+    'smn' => [
+        // www.smn.gob.ar/metar is an iframe onto this legacy application; it
+        // is the same data one hop closer.
+        'base_url' => env('SMN_METAR_BASE_URL', 'https://ssl.smn.gob.ar'),
+
+        // METARs are issued hourly (SPECIs in between), so a short cache still
+        // serves current data while keeping us well clear of the rate limiting
+        // that sits in front of the SMN.
+        'metar_ttl' => env('SMN_METAR_TTL', 600),
+
+        // Retries for Cloudflare's intermittent interstitial. Kept low on
+        // purpose: retrying hard tightens the block rather than clearing it.
+        'attempts' => env('SMN_METAR_ATTEMPTS', 3),
+    ],
+
     'twilio' => [
         'sid' => env('TWILIO_ACCOUNT_SID'),
         'token' => env('TWILIO_AUTH_TOKEN'),

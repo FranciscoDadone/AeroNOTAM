@@ -3,10 +3,20 @@
 namespace App\Services;
 
 use App\Ai\Agents\AirportMatcherAgent;
+use App\DataObjects\Metar;
 use App\DataObjects\Notam;
 use App\Support\AirportResolver;
+use Illuminate\Support\Str;
 
-class WhatsappNotamBotService
+/**
+ * Turns an incoming WhatsApp message into the reply to send back.
+ *
+ * Two things have to be worked out from free text: which aerodrome the user
+ * means, and what they want to know about it. The aerodrome is resolved once,
+ * up front, and shared by both answers; the question then routes to NOTAMs
+ * (the default) or to the current METAR.
+ */
+class WhatsappBotService
 {
     /**
      * Twilio hard-rejects any WhatsApp message body over 1600 characters.
@@ -16,10 +26,29 @@ class WhatsappNotamBotService
      */
     protected const MAX_MESSAGE_LENGTH = 1500;
 
+    /**
+     * Words that mean the user is asking about current weather rather than
+     * NOTAMs. Matched against the accent-stripped message, so "presión" and
+     * "presion" both hit.
+     *
+     * Forecast words ("pronóstico", "mañana") are deliberately absent: a METAR
+     * is an observation of what the weather is doing now, and answering a
+     * question about tomorrow with it would be confidently wrong. Those fall
+     * through to the NOTAM path, which at worst returns something the user can
+     * see is not what they asked for.
+     */
+    protected const METAR_KEYWORDS = [
+        'metar', 'speci', 'clima', 'tiempo', 'meteorolog', 'viento', 'temperatura',
+        'visibilidad', 'llueve', 'lluvia', 'niebla', 'nubes', 'nublado', 'presion',
+        'qnh', 'techo', 'rafaga', 'humedad',
+    ];
+
     public function __construct(
         protected AnacNotamService $anac,
         protected NotamEnricher $enricher,
         protected AirportResolver $airports,
+        protected SmnMetarService $smn,
+        protected MetarEnricher $metarEnricher,
     ) {}
 
     /**
@@ -50,6 +79,16 @@ class WhatsappNotamBotService
                 : $this->helpMessage()];
         }
 
+        return $this->asksForMetar($message)
+            ? $this->metarReply($indicator)
+            : $this->notamReply($indicator);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function notamReply(string $indicator): array
+    {
         try {
             $notams = $this->anac->getNotams($indicator);
         } catch (\Throwable $e) {
@@ -63,6 +102,102 @@ class WhatsappNotamBotService
             $indicator,
             $this->enricher->enrich($notams),
         );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function metarReply(string $indicator): array
+    {
+        $name = $this->airports->nameFor($indicator) ?? $indicator;
+        $icao = $this->airports->icaoFor($indicator);
+
+        // Not every ANAC aerodrome has an ICAO code, and the SMN indexes
+        // observations by that code alone. Saying so is more useful than a
+        // generic failure, because retrying will never help.
+        if ($icao === null) {
+            return ["*{$name}* ({$indicator}) no tiene código OACI, así que el SMN no publica METAR para ese aeródromo."];
+        }
+
+        try {
+            $metars = $this->smn->getMetars($icao);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return ['Encontré el aeropuerto pero no pude obtener su METAR en este momento. Probá de nuevo en unos minutos.'];
+        }
+
+        return $this->formatMetars($name, $icao, $this->metarEnricher->enrich($metars));
+    }
+
+    protected function asksForMetar(string $message): bool
+    {
+        $normalized = Str::ascii(mb_strtolower($message));
+
+        foreach (self::METAR_KEYWORDS as $keyword) {
+            if (str_contains($normalized, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * One WhatsApp message per observation: the report verbatim, then what it
+     * says in Spanish.
+     *
+     * The raw METAR leads and is never dropped — it is the internationally
+     * standard form a pilot can cross-check against any other source, and the
+     * explanation underneath is what makes it readable to everyone else.
+     *
+     * @param  array<int, Metar>  $metars
+     * @return array<int, string>
+     */
+    protected function formatMetars(string $airportName, string $icao, array $metars): array
+    {
+        if ($metars === []) {
+            return ["El SMN no está publicando METAR para *{$airportName}* ({$icao}) en este momento."];
+        }
+
+        $header = "🌦️ *{$airportName}* ({$icao})";
+        $total = count($metars);
+        $budget = self::MAX_MESSAGE_LENGTH - mb_strlen($header) - 12;
+
+        $parts = [];
+
+        foreach ($metars as $i => $metar) {
+            $lines = [];
+
+            // A SPECI is issued because something changed sharply enough to
+            // warrant an off-schedule report, so it gets flagged rather than
+            // reading like the routine hourly observation.
+            if ($metar->isSpeci()) {
+                $lines[] = '⚠️ Informe especial (SPECI)';
+            }
+
+            $lines[] = '```'.$metar->raw.'```';
+
+            if ($metar->explanation !== []) {
+                $lines[] = '';
+                $lines[] = '📋 *Qué dice*';
+
+                foreach ($metar->explanation as $line) {
+                    $lines[] = "• {$line}";
+                }
+            }
+
+            if ($i === $total - 1) {
+                $lines[] = '';
+                $lines[] = '_Fuente: Servicio Meteorológico Nacional_';
+            }
+
+            foreach ($this->splitToFit(implode("\n", $lines), $budget) as $part) {
+                $parts[] = $part;
+            }
+        }
+
+        return $this->withHeader($header, $parts);
     }
 
     /**
@@ -151,6 +286,19 @@ class WhatsappNotamBotService
             }
         }
 
+        return $this->withHeader($header, $parts);
+    }
+
+    /**
+     * Put the aerodrome header on every message body, numbering them "(i/N)"
+     * when there is more than one so a split reply reads as a clearly ordered
+     * sequence in the chat rather than as a burst of unrelated messages.
+     *
+     * @param  array<int, string>  $parts
+     * @return array<int, string>
+     */
+    protected function withHeader(string $header, array $parts): array
+    {
         $partCount = count($parts);
 
         return array_map(
@@ -266,6 +414,8 @@ class WhatsappNotamBotService
     protected function helpMessage(): string
     {
         return "¡Hola! 👋 Decime el aeropuerto que te interesa y te paso sus NOTAM activos.\n\n"
-            .'Por ejemplo: _"hay notams en Ezeiza?"_ o _"aeroparque"_ o el código _"EZE"_.';
+            .'Por ejemplo: _"hay notams en Ezeiza?"_ o _"aeroparque"_ o el código _"EZE"_.'
+            ."\n\n"
+            .'Si querés el estado del tiempo, pedime el METAR: _"metar EZE"_ o _"cómo está el clima en Bariloche?"_.';
     }
 }

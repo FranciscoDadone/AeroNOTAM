@@ -51,6 +51,50 @@ function fakeAnac(mixed $pib = null): void
 }
 
 /**
+ * HTML captured verbatim from ssl.smn.gob.ar/mensajes — the legacy application
+ * that www.smn.gob.ar/metar embeds in an iframe. Same reasoning as the ANAC
+ * fixtures: the scraper is the only thing standing between us and a silently
+ * empty weather report.
+ */
+function smnFixture(string $name): string
+{
+    return file_get_contents(__DIR__."/Fixtures/smn/{$name}");
+}
+
+/**
+ * Stub the SMN's METAR query. Pass $response to override it — most usefully
+ * with the captured Cloudflare interstitial (smnFixture('challenge.html')),
+ * which the service has to recognise and retry past.
+ */
+function fakeSmn(mixed $response = null): void
+{
+    Http::fake([
+        '*/mensajes/index.php*' => $response ?? Http::response(smnFixture('metar-saez.html')),
+    ]);
+}
+
+/**
+ * A one-observation SMN response built on the real markup, carrying the given
+ * raw METAR.
+ */
+function smnWith(string $raw, string $airport = 'EZEIZA', string $observedAt = '27 - 14:00'): string
+{
+    return <<<HTML
+    <form name="imprimir" action="imprimir.php" method="POST">
+        <div>
+            <table>
+                <tr class="headerResult"><td colspan="2">Aeropuerto {$airport}</td></tr>
+                <tr class="result" valign="middle">
+                    <td nowrap><b>{$observedAt}</b></td>
+                    <td width="100%">{$raw}</td>
+                </tr>
+            </table>
+        </div>
+    </form>
+    HTML;
+}
+
+/**
  * A one-NOTAM PIB response built on the real markup, carrying the given text.
  */
 function pibWith(string $textEn): string

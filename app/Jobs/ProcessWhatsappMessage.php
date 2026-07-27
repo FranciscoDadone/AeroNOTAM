@@ -3,21 +3,21 @@
 namespace App\Jobs;
 
 use App\Contracts\WhatsappSender;
-use App\Services\WhatsappNotamBotService;
+use App\Services\WhatsappBotService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-class ProcessWhatsappNotamMessage implements ShouldQueue
+class ProcessWhatsappMessage implements ShouldQueue
 {
     use Queueable;
 
     public int $timeout = 120;
 
     /**
-     * ANAC and Twilio both have transient failures, and the user is sitting in
-     * a chat waiting for an answer — worth retrying before giving up.
+     * ANAC, the SMN and Twilio all have transient failures, and the user is
+     * sitting in a chat waiting for an answer — worth retrying before giving up.
      */
     public int $tries = 3;
 
@@ -37,7 +37,7 @@ class ProcessWhatsappNotamMessage implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(WhatsappNotamBotService $bot, WhatsappSender $sender): void
+    public function handle(WhatsappBotService $bot, WhatsappSender $sender): void
     {
         try {
             $messages = $bot->reply($this->body);

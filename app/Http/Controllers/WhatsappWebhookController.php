@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Jobs\ProcessWhatsappNotamMessage;
+use App\Jobs\ProcessWhatsappMessage;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
@@ -27,7 +27,7 @@ class WhatsappWebhookController extends Controller
         $body = (string) $request->input('Body');
 
         if ($from !== '' && $body !== '') {
-            ProcessWhatsappNotamMessage::dispatch($from, $body);
+            ProcessWhatsappMessage::dispatch($from, $body);
         }
 
         return response('<Response></Response>', Response::HTTP_OK)

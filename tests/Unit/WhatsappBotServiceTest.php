@@ -1,6 +1,6 @@
 <?php
 
-use App\Services\WhatsappNotamBotService;
+use App\Services\WhatsappBotService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -9,9 +9,9 @@ beforeEach(function () {
     withoutAi();
 });
 
-function bot(): WhatsappNotamBotService
+function bot(): WhatsappBotService
 {
-    return app(WhatsappNotamBotService::class);
+    return app(WhatsappBotService::class);
 }
 
 it('matches an airport from free text', function (string $message, string $expectedCode) {
@@ -127,4 +127,126 @@ it('reports a service problem when ANAC is unreachable', function () {
     fakeAnac(Http::response('down', 503));
 
     expect(bot()->reply('eze')[0])->toContain('no pude obtener sus NOTAM');
+});
+
+/*
+|--------------------------------------------------------------------------
+| METAR
+|--------------------------------------------------------------------------
+*/
+
+it('answers with the metar when the message asks about the weather', function (string $message) {
+    fakeAnac();
+    fakeSmn();
+
+    $reply = bot()->reply($message);
+
+    expect($reply[0])
+        ->toContain('METAR SAEZ 271400Z')
+        ->toContain('Fuente: Servicio Meteorológico Nacional')
+        ->not->toContain('NOTAM');
+})->with([
+    'the word metar' => ['metar EZE'],
+    'asking for the weather' => ['como esta el clima en ezeiza?'],
+    'accented, as typed' => ['¿cómo está el tiempo en Ezeiza?'],
+    'asking about wind' => ['viento en SAEZ'],
+    'asking about visibility' => ['hay visibilidad en ezeiza?'],
+]);
+
+/**
+ * NOTAMs stay the default. A message with no weather word in it must not be
+ * quietly answered with an observation instead of the operational notices.
+ */
+it('still answers with notams when the weather is not mentioned', function () {
+    fakeAnac();
+    fakeSmn();
+
+    // The source credit rides on the final message, so assert over the whole
+    // reply rather than its first part.
+    expect(implode(' ', bot()->reply('hay notams en ezeiza?')))
+        ->toContain('Fuente: ANAC')
+        ->not->toContain('METAR SAEZ');
+});
+
+/**
+ * A forecast is not an observation. Answering "¿qué tiempo va a hacer mañana?"
+ * with the current METAR would be confidently wrong, so forecast wording is
+ * deliberately not a METAR trigger.
+ */
+it('does not treat a forecast request as a metar request', function () {
+    fakeAnac();
+    fakeSmn();
+
+    expect(bot()->reply('pronostico para ezeiza')[0])->not->toContain('METAR SAEZ');
+});
+
+it('explains the metar in spanish under the raw report', function () {
+    fakeAnac();
+    fakeSmn();
+
+    expect(bot()->reply('metar ezeiza')[0])
+        ->toContain('Qué dice')
+        ->toContain('Viento del 030° (NNE) a 9 nudos.')
+        ->toContain('Temperatura 15 °C')
+        ->toContain('Presión QNH 1009 hPa.');
+});
+
+it('flags a SPECI as an off-schedule report', function () {
+    fakeAnac();
+    fakeSmn(Http::response(smnWith('SPECI SAEZ 271530Z 18015G28KT 3000 +TSRA OVC012 19/18 Q1002 =')));
+
+    expect(bot()->reply('metar ezeiza')[0])
+        ->toContain('Informe especial (SPECI)')
+        ->toContain('tormenta con lluvia fuerte');
+});
+
+it('says so when the aerodrome has no ICAO code to look up', function () {
+    fakeAnac();
+    fakeSmn();
+
+    // Alta Gracia is in ANAC's registry but has no OACI code, so the SMN has
+    // nothing to index an observation by.
+    expect(bot()->reply('metar alta gracia')[0])->toContain('no tiene código OACI');
+
+    Http::assertNothingSent();
+});
+
+it('reports a service problem when the SMN is unreachable', function () {
+    fakeAnac();
+    fakeSmn(Http::response('down', 503));
+
+    expect(bot()->reply('metar eze')[0])->toContain('no pude obtener su METAR');
+});
+
+it('says so when the SMN publishes no observation', function () {
+    fakeAnac();
+    fakeSmn(Http::response(smnFixture('metar-empty.html')));
+
+    expect(bot()->reply('metar eze')[0])->toContain('no está publicando METAR');
+});
+
+it('offers both notams and metar in the help text', function () {
+    fakeAnac();
+
+    $help = bot()->reply('')[0];
+
+    expect($help)->toContain('NOTAM')->toContain('METAR');
+});
+
+it('keeps every metar message within the twilio limit', function () {
+    fakeAnac();
+    fakeSmn(Http::response(smnFixture('metar-multi.html')));
+
+    $reply = bot()->reply('metar aeroparque');
+
+    foreach ($reply as $message) {
+        expect(mb_strlen($message))->toBeLessThanOrEqual(1500);
+    }
+
+    // All four stations survive the split.
+    expect(implode(' ', $reply))
+        ->toContain('SABE')
+        ->toContain('SAME')
+        ->toContain('SAWH')
+        ->toContain('SACO');
 });

@@ -1,6 +1,6 @@
 <?php
 
-use App\Jobs\ProcessWhatsappNotamMessage;
+use App\Jobs\ProcessWhatsappMessage;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
 use Twilio\Security\RequestValidator;
@@ -30,7 +30,7 @@ it('queues a reply for a properly signed request', function () {
         ->assertOk()
         ->assertHeader('Content-Type', 'text/xml; charset=UTF-8');
 
-    Queue::assertPushed(ProcessWhatsappNotamMessage::class);
+    Queue::assertPushed(ProcessWhatsappMessage::class);
 });
 
 /**

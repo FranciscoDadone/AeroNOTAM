@@ -1,0 +1,68 @@
+name: notams
+
+# Un mismo código con distinto comando: comparten imagen, entorno y volúmenes.
+x-app: &app
+  build:
+    context: .
+    target: app
+  image: franciscodadone/flybot:${IMAGE_TAG:-latest}
+  env_file:
+    - .env
+  environment:
+    DB_CONNECTION: sqlite
+    DB_DATABASE: /app/database/sqlite/database.sqlite
+    LOG_CHANNEL: stack
+    LOG_STACK: stderr
+  volumes:
+    - storage:/app/storage
+    - database:/app/database/sqlite
+  restart: unless-stopped
+
+services:
+  # Corre una vez y termina. Aparte de los otros tres para que no apliquen las
+  # migraciones a la vez sobre el mismo archivo SQLite.
+  migrate:
+    <<: *app
+    restart: "no"
+    healthcheck:
+      disable: true
+    command:
+      - sh
+      - -c
+      - |
+        php artisan migrate --force --seed
+        php -r '(new PDO("sqlite:" . getenv("DB_DATABASE")))->exec("PRAGMA journal_mode=WAL");'
+
+  app:
+    <<: *app
+    ports:
+      - "${APP_PORT:-8090}:80"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Sin esto el webhook acepta el mensaje y nadie contesta: toda respuesta del
+  # bot sale de un job en cola.
+  queue:
+    <<: *app
+    healthcheck:
+      disable: true
+    command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=120", "--sleep=3", "--max-time=3600"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 130s
+
+  scheduler:
+    <<: *app
+    healthcheck:
+      disable: true
+    command: ["php", "artisan", "schedule:work"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 60s
+
+volumes:
+  database:
+  storage:

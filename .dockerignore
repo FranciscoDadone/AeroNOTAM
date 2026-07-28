@@ -1,0 +1,33 @@
+# Lo instala la etapa `vendor` del Dockerfile, contra el PHP de la imagen.
+/vendor
+/node_modules
+
+/.git
+/.github
+/.claude
+/.idea
+/.vscode
+
+# Nunca dentro de la imagen: la configuración entra por variables de entorno.
+.env
+.env.*
+!.env.example
+
+# Estado local que no tiene por qué viajar (el contenedor usa volúmenes).
+/database/database.sqlite
+/database/*.sqlite-shm
+/database/*.sqlite-wal
+/storage/logs/*
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+/storage/app/public/*
+/storage/pail
+/public/storage
+/bootstrap/cache/*
+
+/tests
+phpunit.xml
+.phpunit.result.cache
+.phpunit.cache
+phpstan.neon

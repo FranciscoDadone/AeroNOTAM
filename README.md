@@ -116,6 +116,68 @@ composer dev       # servidor + worker de cola + logs
 La `OPENROUTER_API_KEY` es opcional: sin ella todo funciona con el
 decodificador offline.
 
+### Con Docker
+
+```bash
+cp .env.example .env
+php artisan key:generate    # o pegar un APP_KEY existente en .env
+docker compose up -d --build
+curl "http://localhost:8090/api/v1/metar?aerodromo=EZE"
+```
+
+La imagen es [FrankenPHP](https://frankenphp.dev): servidor y PHP en el mismo
+proceso, sin nginx ni php-fpm que mantener en sincronía. `compose.yaml` la
+corre con tres comandos distintos, que son los tres procesos que la aplicación
+necesita para estar entera:
+
+| Servicio | Qué hace |
+| --- | --- |
+| `app` | La API REST y el webhook de WhatsApp, en `:8090` (`APP_PORT` lo cambia). |
+| `queue` | `queue:work`. **Sin él el bot no contesta**: toda respuesta sale de un job. |
+| `scheduler` | `schedule:work`: `notams:refresh-airports` y la ronda de `metar:watch`. |
+
+Un cuarto servicio, `migrate`, corre una vez antes que los demás y termina:
+migra, siembra los aeródromos y pone la base en modo WAL. Tenerlo aparte es lo
+que evita que los otros tres apliquen las migraciones a la vez sobre el mismo
+archivo SQLite.
+
+La configuración se lee del `.env` del repositorio, así que el contenedor toma
+las mismas claves de Twilio y OpenRouter que el entorno local. Dos cosas que
+conviene mirar antes de exponer el puerto: `APP_ENV=local` deja habilitado el
+endpoint `/api/whatsapp/test`, y `APP_DEBUG=true` muestra los stack traces.
+
+La base, la cola, la caché y las suscripciones viven en el volumen `database`
+—fuera de la imagen, para que sobrevivan a un `--build`—; los archivos
+generados, en `storage`. `docker compose down -v` borra los dos.
+
+```bash
+docker compose logs -f queue                     # ver responder al bot
+docker compose exec app php artisan metar:watch  # forzar una ronda de alertas
+docker compose exec app php artisan tinker
+```
+
+### La imagen publicada
+
+El CI publica **`franciscodadone/flybot`** en Docker Hub en cada push a `main`
+y cada tag `v*`, después de que pasen pint, phpstan y la suite.
+
+Cada build sale etiquetada con `latest` (sólo en la rama por defecto), el
+nombre de la rama, el tag de git si lo hay, y el sha corto del commit — el
+único inmutable, y por lo tanto con el que conviene desplegar:
+
+```bash
+IMAGE_TAG=sha-1af8cfc docker compose pull
+IMAGE_TAG=sha-1af8cfc docker compose up -d
+```
+
+Requiere dos secretos en el repositorio: `DOCKERHUB_USERNAME` y
+`DOCKERHUB_TOKEN` (un access token de Docker Hub, no la contraseña).
+
+Para que Twilio llegue al webhook hace falta una URL pública apuntando a
+`http://localhost:8090` (`ngrok http 8090`); la app ya confía en los headers del
+proxy, que es lo que hace que la firma del webhook valide sin importar cuántos
+saltos haya en el medio.
+
 ## API
 
 | Endpoint | Descripción |

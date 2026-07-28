@@ -109,12 +109,16 @@ distinguir "código inexistente" de "aeródromo real sin novedades hoy".
 ## Puesta en marcha
 
 ```bash
-composer setup     # instala, genera APP_KEY, migra y siembra los aeródromos
-composer dev       # servidor + worker de cola + logs
+composer setup     # instala, genera APP_KEY, migra, siembra y compila la landing
+composer dev       # servidor + worker de cola + logs + vite
 ```
 
 La `OPENROUTER_API_KEY` es opcional: sin ella todo funciona con el
 decodificador offline.
+
+`composer setup` corre además `npm install && npm run build`, que es lo que
+compila el CSS de la landing. Sin ese paso la raíz falla al buscar el
+manifiesto de Vite, así que la suite también lo necesita.
 
 ### Con Docker
 
@@ -126,9 +130,10 @@ curl "http://localhost:8090/api/v1/metar?aerodromo=EZE"
 ```
 
 La imagen es [FrankenPHP](https://frankenphp.dev): servidor y PHP en el mismo
-proceso, sin nginx ni php-fpm que mantener en sincronía. `compose.yaml` la
-corre con tres comandos distintos, que son los tres procesos que la aplicación
-necesita para estar entera:
+proceso, sin nginx ni php-fpm que mantener en sincronía. Una etapa `assets`
+compila el CSS con Node y sólo viaja el resultado, así que la imagen final no
+lleva Node adentro. `compose.yaml` la corre con tres comandos distintos, que son
+los tres procesos que la aplicación necesita para estar entera:
 
 | Servicio | Qué hace |
 | --- | --- |
@@ -177,6 +182,29 @@ Para que Twilio llegue al webhook hace falta una URL pública apuntando a
 `http://localhost:8090` (`ngrok http 8090`); la app ya confía en los headers del
 proxy, que es lo que hace que la firma del webhook valide sin importar cuántos
 saltos haya en el medio.
+
+## La landing
+
+`/` sirve `resources/views/landing.blade.php`, la única vista de la aplicación.
+Está escrita para quien vuela, no para quien la despliega: qué contestan los
+NOTAM, el METAR, el TAF y las alertas, y cómo escribirle al bot. Lo de acá
+abajo —la API, Docker, el bloqueo del SMN— queda fuera a propósito.
+
+Los estilos son [Tailwind](https://tailwindcss.com) compilado por Vite
+(`resources/css/app.css`), así que hace falta `npm run build` —o `npm run dev`—
+para que la página tenga estilos. La imagen de Docker lo hace en su etapa
+`assets` y el CI antes de la suite.
+
+El logo vive en `public/images/`, ya derivado del original a los tamaños que la
+página usa: `flybot-logo-128.webp` para el nav y el avatar del chat,
+`flybot-logo.webp` para el cierre, `flybot-og.jpg` para las previsualizaciones
+al compartir el enlace y `flybot-touch.png` para el ícono de pantalla de inicio.
+No pasan por Vite —son archivos estáticos servidos tal cual— así que
+reemplazarlos no necesita recompilar nada.
+
+El número del botón sale de `TWILIO_WHATSAPP_FROM`, así que la página apunta
+sola a donde esté configurado el bot. Sin esa variable no se publica ningún
+enlace, en vez de uno roto.
 
 ## API
 

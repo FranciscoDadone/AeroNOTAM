@@ -44,10 +44,27 @@ RUN composer dump-autoload --no-dev --optimize --classmap-authoritative
 
 # ---------------------------------------------------------------------------
 
+# El CSS de la landing lo compila Vite, así que la imagen necesita Node una
+# sola vez —acá— y no en la que termina corriendo.
+FROM node:22-alpine AS assets
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY vite.config.js ./
+COPY resources ./resources
+
+RUN npm run build
+
+# ---------------------------------------------------------------------------
+
 FROM base AS app
 
 COPY --chown=www-data:www-data . .
 COPY --from=vendor --chown=www-data:www-data /app/vendor ./vendor
+COPY --from=assets --chown=www-data:www-data /app/public/build ./public/build
 COPY --from=vendor --chown=www-data:www-data /app/bootstrap/cache ./bootstrap/cache
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint

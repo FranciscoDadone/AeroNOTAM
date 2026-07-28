@@ -4,15 +4,17 @@ use App\Http\Controllers\WhatsappWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /**
- * This project has no web UI — it's a JSON API plus a WhatsApp bot — so the
- * root simply describes what's available instead of serving a built frontend.
+ * The landing page is the whole web UI: everything else is a JSON API plus a
+ * WhatsApp bot. All it needs from the app is the number to write to, which
+ * lives in the Twilio config.
  */
-Route::get('/', fn () => response()->json([
-    'servicio' => 'NOTAMs Argentina (fuente: ANAC)',
-    'endpoints' => [
-        'GET /api/notams?aerodromo=EZE' => 'NOTAM activos de un aeródromo (agregar &decode=false para omitir la decodificación por IA).',
-        'GET /api/notams/aerodromos' => 'Aeródromos que ANAC reporta con NOTAM activos.',
-    ],
-]));
+Route::get('/', function () {
+    $number = (string) preg_replace('/\D/', '', (string) config('services.twilio.whatsapp_from'));
+
+    return view('landing', [
+        'number' => $number,
+        'link' => $number === '' ? null : 'https://wa.me/'.$number,
+    ]);
+});
 
 Route::post('/whatsapp/webhook', [WhatsappWebhookController::class, 'handle']);

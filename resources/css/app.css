@@ -1,0 +1,100 @@
+@import 'tailwindcss';
+
+@source '../views';
+
+/**
+ * Paleta clara de alto contraste: la página se lee en cabina o en plataforma,
+ * con sol de frente y el brillo del teléfono al máximo. De ahí que el texto
+ * secundario más claro sea #4b5765 (7:1 sobre blanco) y no un gris suave, y
+ * que los bordes sean visibles en vez de insinuados.
+ */
+@theme {
+    --color-ink: #ffffff;
+    --color-panel: #f7f9fb;
+    --color-panel-2: #eef3f8;
+    --color-line: #d3dbe4;
+    --color-line-soft: #e6ecf2;
+    --color-body: #0f151b;
+    --color-muted: #4b5765;
+    --color-dim: #66707d;
+    --color-air: #0b5fd0;
+    --color-air-soft: #e9f1ff;
+    --color-raw-bg: #eff4f9;
+    --color-raw: #10395f;
+    --color-wa: #0f7a41;
+
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+}
+
+@layer base {
+    html {
+        scroll-behavior: smooth;
+    }
+
+    body {
+        @apply bg-ink text-body font-sans text-[17px] antialiased;
+    }
+}
+
+@layer components {
+    .eyebrow {
+        @apply font-mono text-xs font-medium uppercase tracking-[0.12em] text-dim;
+    }
+
+    .sec-title {
+        @apply text-[clamp(1.75rem,3.2vw,2.35rem)] font-semibold leading-[1.12] tracking-[-0.025em];
+    }
+
+    .card {
+        @apply flex flex-col rounded-xl border border-line bg-ink p-6 transition-colors duration-150 hover:border-air/45;
+    }
+
+    .card h3 {
+        @apply mb-2 text-[1.05rem] font-semibold tracking-[-0.01em];
+    }
+
+    .card p {
+        @apply text-[0.95rem] text-muted;
+    }
+
+    .btn {
+        @apply inline-flex items-center gap-2 rounded-lg px-6 py-3.5 font-medium transition-colors duration-150;
+    }
+
+    .chip {
+        @apply rounded-lg border border-line bg-panel px-3 py-2 font-mono text-[0.8rem] text-muted;
+    }
+
+    /* El marcador va en su propia columna para que las líneas que envuelven
+       queden alineadas bajo el texto y no bajo la flecha. */
+    .checks {
+        @apply grid gap-4;
+    }
+
+    .checks li {
+        @apply grid grid-cols-[16px_1fr] gap-3 text-muted;
+    }
+
+    .checks li::before {
+        @apply font-mono text-air;
+        content: '→';
+    }
+
+    .checks strong {
+        @apply font-semibold text-body;
+    }
+
+    /* El texto crudo es lo que el piloto contrasta contra otra fuente: va en
+       mono, sobre un fondo propio y con contraste de cuerpo, nunca atenuado. */
+    .raw {
+        @apply rounded-lg bg-raw-bg px-3 py-2.5 font-mono text-raw;
+    }
+
+    /* Sin fondo: el recuadro de un código en medio de una oración abre un
+       hueco antes de la coma que le sigue y se lee como un espacio de más. */
+    .checks code,
+    .card code {
+        @apply font-mono text-[0.9em] font-semibold text-raw;
+    }
+}

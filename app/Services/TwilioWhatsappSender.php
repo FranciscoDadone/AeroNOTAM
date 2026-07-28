@@ -18,6 +18,21 @@ class TwilioWhatsappSender implements WhatsappSender
         ]);
     }
 
+    public function sendWithButtons(string $to, string $contentSid, array $variables, string $fallback): void
+    {
+        if ($contentSid === '') {
+            $this->send($to, $fallback);
+
+            return;
+        }
+
+        $this->client()->messages->create($to, [
+            'from' => config('services.twilio.whatsapp_from'),
+            'contentSid' => $contentSid,
+            'contentVariables' => (string) json_encode($variables),
+        ]);
+    }
+
     public function indicateTyping(string $inboundMessageId): void
     {
         $this->client()->messaging->v2->typingIndicator->create('whatsapp', $inboundMessageId);

@@ -1,5 +1,7 @@
 <?php
 
+use App\DataObjects\Metar;
+use App\Models\MetarSubscription;
 use App\Services\WhatsappBotService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -17,7 +19,7 @@ function bot(): WhatsappBotService
 it('matches an airport from free text', function (string $message, string $expectedCode) {
     fakeAnac();
 
-    expect(bot()->reply($message)[0])->toContain("({$expectedCode})");
+    expect(bot()->reply($message)->messages[0])->toContain("({$expectedCode})");
 })->with([
     'bare anac code' => ['eze', 'EZE'],
     'anac code in a sentence' => ['hay notams en EZE?', 'EZE'],
@@ -32,7 +34,7 @@ it('matches an airport from free text', function (string $message, string $expec
 it('returns the help text for an empty message', function () {
     fakeAnac();
 
-    $reply = bot()->reply('');
+    $reply = bot()->reply('')->messages;
 
     expect($reply)->toHaveCount(1)
         ->and($reply[0])->toContain('Decime el aeropuerto');
@@ -41,7 +43,7 @@ it('returns the help text for an empty message', function () {
 it('returns the help text for an unrecognizable message', function () {
     fakeAnac();
 
-    expect(bot()->reply('cual es la capital de francia')[0])->toContain('Decime el aeropuerto');
+    expect(bot()->reply('cual es la capital de francia')->messages[0])->toContain('Decime el aeropuerto');
 });
 
 /**
@@ -52,7 +54,7 @@ it('returns the help text for an unrecognizable message', function () {
 it('does not match FIR-wide advisory pseudo-codes', function () {
     fakeAnac();
 
-    expect(bot()->reply('cordoba')[0])
+    expect(bot()->reply('cordoba')->messages[0])
         ->not->toContain('(-CF)')
         ->not->toContain('(---)');
 });
@@ -64,7 +66,7 @@ it('does not match FIR-wide advisory pseudo-codes', function () {
 it('asks which aerodrome when the name is ambiguous', function () {
     fakeAnac();
 
-    $reply = bot()->reply('cordoba');
+    $reply = bot()->reply('cordoba')->messages;
 
     expect($reply)->toHaveCount(1)
         ->and($reply[0])
@@ -76,13 +78,13 @@ it('asks which aerodrome when the name is ambiguous', function () {
 it('resolves the ambiguity when answered with a code', function () {
     fakeAnac();
 
-    expect(bot()->reply('CBA')[0])->toContain('(CBA)');
+    expect(bot()->reply('CBA')->messages[0])->toContain('(CBA)');
 });
 
 it('numbers each notam as its own message', function () {
     fakeAnac();
 
-    $reply = bot()->reply('aeroparque');
+    $reply = bot()->reply('aeroparque')->messages;
 
     // The AER fixture carries three NOTAMs.
     expect($reply)->toHaveCount(3)
@@ -97,7 +99,7 @@ it('falls back to the offline decoder when there is no AI', function () {
     fakeAnac();
 
     // "RWY 13/31 CLSD WIP MAINT" decoded without any model involved.
-    expect(bot()->reply('aeroparque')[0])->toContain('Pista 13/31 cerrada');
+    expect(bot()->reply('aeroparque')->messages[0])->toContain('Pista 13/31 cerrada');
 });
 
 /**
@@ -110,7 +112,7 @@ it('splits a long notam across messages without losing text', function () {
 
     fakeAnac(Http::response(pibWith($long)));
 
-    $reply = bot()->reply('aeroparque');
+    $reply = bot()->reply('aeroparque')->messages;
 
     expect(count($reply))->toBeGreaterThan(1);
 
@@ -126,7 +128,7 @@ it('splits a long notam across messages without losing text', function () {
 it('reports a service problem when ANAC is unreachable', function () {
     fakeAnac(Http::response('down', 503));
 
-    expect(bot()->reply('eze')[0])->toContain('no pude obtener sus NOTAM');
+    expect(bot()->reply('eze')->messages[0])->toContain('no pude obtener sus NOTAM');
 });
 
 /*
@@ -139,7 +141,7 @@ it('answers with the metar when the message asks about the weather', function (s
     fakeAnac();
     fakeMetar();
 
-    $reply = bot()->reply($message);
+    $reply = bot()->reply($message)->messages;
 
     expect($reply[0])
         ->toContain('METAR SAEZ 271400Z')
@@ -163,7 +165,7 @@ it('still answers with notams when the weather is not mentioned', function () {
 
     // The source credit rides on the final message, so assert over the whole
     // reply rather than its first part.
-    expect(implode(' ', bot()->reply('hay notams en ezeiza?')))
+    expect(implode(' ', bot()->reply('hay notams en ezeiza?')->messages))
         ->toContain('Fuente: ANAC')
         ->not->toContain('METAR SAEZ');
 });
@@ -178,14 +180,14 @@ it('does not treat a forecast request as a metar request', function () {
     fakeMetar();
     fakeTaf();
 
-    expect(bot()->reply('pronostico para ezeiza')[0])->not->toContain('METAR SAEZ');
+    expect(bot()->reply('pronostico para ezeiza')->messages[0])->not->toContain('METAR SAEZ');
 });
 
 it('explains the metar in spanish under the raw report', function () {
     fakeAnac();
     fakeMetar();
 
-    expect(bot()->reply('metar ezeiza')[0])
+    expect(bot()->reply('metar ezeiza')->messages[0])
         ->toContain('Qué dice')
         ->toContain('Viento del 030° (NNE) a 9 nudos.')
         ->toContain('Temperatura 15 °C')
@@ -196,7 +198,7 @@ it('flags a SPECI as an off-schedule report', function () {
     fakeAnac();
     fakeMetar(Http::response(smnMetarWith('SPECI SAEZ 271530Z 18015G28KT 3000 +TSRA OVC012 19/18 Q1002 =')));
 
-    expect(bot()->reply('metar ezeiza')[0])
+    expect(bot()->reply('metar ezeiza')->messages[0])
         ->toContain('Informe especial (SPECI)')
         ->toContain('tormenta con lluvia fuerte');
 });
@@ -207,7 +209,7 @@ it('says so when the aerodrome has no ICAO code to look up', function () {
 
     // Alta Gracia is in ANAC's registry but has no OACI code, so the SMN has
     // nothing to index an observation by.
-    expect(bot()->reply('metar alta gracia')[0])->toContain('no tiene código OACI');
+    expect(bot()->reply('metar alta gracia')->messages[0])->toContain('no tiene código OACI');
 
     Http::assertNothingSent();
 });
@@ -221,7 +223,7 @@ it('still answers with the metar when the SMN is blocking', function () {
     fakeAnac();
     fakeMetar(Http::response(smnFixture('challenge.html'), 403));
 
-    $reply = bot()->reply('metar eze')[0];
+    $reply = bot()->reply('metar eze')->messages[0];
 
     expect($reply)
         ->toContain('METAR SAEZ 271700Z')
@@ -233,20 +235,20 @@ it('reports a service problem only when every source is unreachable', function (
     fakeAnac();
     fakeMetar(Http::response('down', 503), Http::response('down', 503));
 
-    expect(bot()->reply('metar eze')[0])->toContain('no pude obtener su METAR');
+    expect(bot()->reply('metar eze')->messages[0])->toContain('no pude obtener su METAR');
 });
 
 it('says so when there is no observation published', function () {
     fakeAnac();
     fakeMetar(Http::response(smnFixture('metar-empty.html')));
 
-    expect(bot()->reply('metar eze')[0])->toContain('No hay METAR publicado');
+    expect(bot()->reply('metar eze')->messages[0])->toContain('No hay METAR publicado');
 });
 
 it('offers notams, metar and taf in the help text', function () {
     fakeAnac();
 
-    $help = bot()->reply('')[0];
+    $help = bot()->reply('')->messages[0];
 
     expect($help)->toContain('NOTAM')->toContain('METAR')->toContain('TAF');
 });
@@ -255,7 +257,7 @@ it('keeps every metar message within the twilio limit', function () {
     fakeAnac();
     fakeMetar(Http::response(smnFixture('metar-multi.html')));
 
-    $reply = bot()->reply('metar aeroparque');
+    $reply = bot()->reply('metar aeroparque')->messages;
 
     foreach ($reply as $message) {
         expect(mb_strlen($message))->toBeLessThanOrEqual(1500);
@@ -286,7 +288,7 @@ it('answers with the taf when the message asks about the forecast', function (st
     fakeMetar();
     fakeTaf();
 
-    $reply = bot()->reply($message);
+    $reply = bot()->reply($message)->messages;
 
     expect($reply[0])
         ->toContain('TAF SAEZ 271700Z')
@@ -310,7 +312,7 @@ it('prefers the forecast when a message asks about both', function () {
     fakeMetar();
     fakeTaf();
 
-    expect(bot()->reply('que tiempo va a haber mañana en ezeiza?')[0])
+    expect(bot()->reply('que tiempo va a haber mañana en ezeiza?')->messages[0])
         ->toContain('TAF SAEZ')
         ->not->toContain('METAR SAEZ');
 });
@@ -323,7 +325,7 @@ it('keeps answering with notams when the message says notam', function () {
     fakeAnac();
     fakeTaf();
 
-    expect(implode(' ', bot()->reply('hay notams para mañana en ezeiza?')))
+    expect(implode(' ', bot()->reply('hay notams para mañana en ezeiza?')->messages))
         ->toContain('Fuente: ANAC')
         ->not->toContain('TAF SAEZ');
 });
@@ -332,7 +334,7 @@ it('explains the taf in spanish under the raw forecast', function () {
     fakeAnac();
     fakeTaf();
 
-    expect(bot()->reply('taf ezeiza')[0])
+    expect(bot()->reply('taf ezeiza')->messages[0])
         ->toContain('Qué dice')
         ->toContain('Válido desde el día 27 a las 18:00 hasta el día 28 a las 18:00 UTC.')
         ->toContain('Fluctuaciones temporarias (TEMPO) el día 28 entre las 08:00 y las 12:00 UTC');
@@ -342,7 +344,7 @@ it('flags an amended forecast', function () {
     fakeAnac();
     fakeTaf(Http::response(smnTafWith('TAF AMD SAEZ 271900Z 2719/2818 18025G40KT 3000 TSRA BKN008CB =')));
 
-    expect(bot()->reply('taf ezeiza')[0])
+    expect(bot()->reply('taf ezeiza')->messages[0])
         ->toContain('Pronóstico enmendado (AMD)')
         ->toContain('tormenta con lluvia');
 });
@@ -351,14 +353,14 @@ it('flags a cancelled forecast', function () {
     fakeAnac();
     fakeTaf(Http::response(smnTafWith('TAF SAEZ 271700Z 2718/2818 CNL =')));
 
-    expect(bot()->reply('taf ezeiza')[0])->toContain('Pronóstico cancelado (CNL)');
+    expect(bot()->reply('taf ezeiza')->messages[0])->toContain('Pronóstico cancelado (CNL)');
 });
 
 it('says so when the aerodrome has no ICAO code for a forecast', function () {
     fakeAnac();
     fakeTaf();
 
-    expect(bot()->reply('pronostico alta gracia')[0])->toContain('no tiene código OACI');
+    expect(bot()->reply('pronostico alta gracia')->messages[0])->toContain('no tiene código OACI');
 
     Http::assertNothingSent();
 });
@@ -367,7 +369,7 @@ it('still answers with the taf when the SMN is blocking', function () {
     fakeAnac();
     fakeTaf(Http::response(smnFixture('challenge.html'), 403));
 
-    expect(bot()->reply('taf eze')[0])
+    expect(bot()->reply('taf eze')->messages[0])
         ->toContain('TAF SAEZ 271700Z')
         ->toContain('Servicio Meteorológico Nacional')
         ->not->toContain('no pude obtener');
@@ -377,21 +379,21 @@ it('reports a service problem only when every forecast source is unreachable', f
     fakeAnac();
     fakeTaf(Http::response('down', 503), Http::response('down', 503));
 
-    expect(bot()->reply('taf eze')[0])->toContain('no pude obtener su pronóstico TAF');
+    expect(bot()->reply('taf eze')->messages[0])->toContain('no pude obtener su pronóstico TAF');
 });
 
 it('says so when there is no forecast published', function () {
     fakeAnac();
     fakeTaf(Http::response(smnFixture('taf-empty.html')));
 
-    expect(bot()->reply('taf eze')[0])->toContain('No hay TAF publicado');
+    expect(bot()->reply('taf eze')->messages[0])->toContain('No hay TAF publicado');
 });
 
 it('keeps every taf message within the twilio limit', function () {
     fakeAnac();
     fakeTaf(Http::response(smnFixture('taf-multi.html')));
 
-    $reply = bot()->reply('taf aeroparque');
+    $reply = bot()->reply('taf aeroparque')->messages;
 
     foreach ($reply as $message) {
         expect(mb_strlen($message))->toBeLessThanOrEqual(1500);
@@ -403,4 +405,399 @@ it('keeps every taf message within the twilio limit', function () {
         ->toContain('SAME')
         ->toContain('SAWH')
         ->toContain('SACO');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Alertas
+|--------------------------------------------------------------------------
+|
+| The subscription topics are the only ones that need to know who is asking,
+| and the only ones that write anything down. PHONE stands in for whatever
+| Twilio would send as "From".
+|
+*/
+
+const PHONE = 'whatsapp:+5491122334455';
+
+it('offers the watch button under an observation', function () {
+    fakeMetar();
+    config(['services.twilio.content_sid_metar' => 'HXtest']);
+
+    $reply = bot()->reply('metar EZE', PHONE);
+
+    expect($reply->button)->not->toBeNull()
+        ->and($reply->button->contentSid)->toBe('HXtest')
+        ->and($reply->button->payloadValue)->toBe('SAEZ');
+});
+
+/**
+ * Off-channel there is nobody to write back to, so there is nothing to offer.
+ */
+it('does not offer the watch button when there is no sender', function () {
+    fakeMetar();
+
+    expect(bot()->reply('metar EZE')->button)->toBeNull();
+});
+
+it('does not offer a watch that is already running', function () {
+    fakeMetar();
+    config(['services.twilio.content_sid_metar' => 'HXtest']);
+
+    MetarSubscription::create([
+        'phone' => PHONE,
+        'anac_code' => 'EZE',
+        'icao_code' => 'SAEZ',
+        'expires_at' => now()->addHours(6),
+        'last_raw' => 'METAR SAEZ 271400Z 03009KT 9999 SCT020 15/14 Q1009',
+    ]);
+
+    $reply = bot()->reply('metar EZE', PHONE);
+
+    expect($reply->button)->toBeNull()
+        ->and(implode(' ', $reply->messages))->toContain('Ya te estoy avisando');
+});
+
+it('subscribes from a written request and answers with the baseline observation', function () {
+    fakeMetar();
+
+    $reply = bot()->reply('avisame si cambia el clima en EZE', PHONE);
+
+    $subscription = MetarSubscription::query()->firstOrFail();
+
+    expect($subscription->phone)->toBe(PHONE)
+        ->and($subscription->anac_code)->toBe('EZE')
+        ->and($subscription->icao_code)->toBe('SAEZ')
+        ->and($subscription->last_raw)->toContain('METAR SAEZ 271400Z')
+        ->and($reply->messages[0])->toContain('Te aviso si cambia el METAR')
+        // The report the comparison starts from travels with the confirmation,
+        // so the user can see it rather than take it on trust.
+        ->and(implode(' ', $reply->messages))->toContain('METAR SAEZ 271400Z');
+});
+
+/**
+ * A message mentioning the weather *and* asking to be told about changes is a
+ * subscription, not a METAR — the METAR words are in it by necessity.
+ */
+it('does not answer a subscription request with today observation only', function () {
+    fakeMetar();
+
+    expect(bot()->reply('avisame si cambia el clima en EZE', PHONE)->messages[0])
+        ->toContain('Te aviso si cambia');
+});
+
+it('subscribes from a tapped button without any keyword matching', function () {
+    fakeMetar();
+
+    bot()->reply('🔔 Avisarme 12 h', PHONE, 'sub:SAEZ:12');
+
+    expect(MetarSubscription::query()->where('anac_code', 'EZE')->exists())->toBeTrue();
+});
+
+it('honours the duration on the button payload', function () {
+    fakeMetar();
+
+    bot()->reply('', PHONE, 'sub:SAEZ:12');
+
+    expect(MetarSubscription::query()->firstOrFail()->expires_at)
+        ->toBeBetween(now()->addHours(11), now()->addHours(13));
+});
+
+it('reads a duration out of the message', function () {
+    fakeMetar();
+
+    bot()->reply('avisame EZE por 6 horas', PHONE);
+
+    expect(MetarSubscription::query()->firstOrFail()->expires_at)
+        ->toBeBetween(now()->addHours(5), now()->addHours(7));
+});
+
+/**
+ * Past 24 hours WhatsApp stops letting us write to the user at all, so a
+ * longer request is capped rather than honoured or refused.
+ */
+it('caps a request longer than the messaging window allows', function () {
+    fakeMetar();
+
+    bot()->reply('avisame EZE por 72 horas', PHONE);
+
+    expect(MetarSubscription::query()->firstOrFail()->expires_at)
+        ->toBeBetween(now()->addHours(23), now()->addHours(25));
+});
+
+it('renews an existing watch instead of stacking a second one', function () {
+    fakeMetar();
+
+    MetarSubscription::create([
+        'phone' => PHONE,
+        'anac_code' => 'EZE',
+        'icao_code' => 'SAEZ',
+        'expires_at' => now()->addMinutes(5),
+        'last_raw' => 'stale',
+        'last_notified_at' => now()->subHour(),
+    ]);
+
+    bot()->reply('', PHONE, 'sub:SAEZ:12');
+
+    $subscriptions = MetarSubscription::query()->get();
+
+    expect($subscriptions)->toHaveCount(1)
+        ->and($subscriptions[0]->expires_at)->toBeGreaterThan(now()->addHours(11))
+        // The baseline restarts from the report just shown, so what was sent
+        // under the previous watch says nothing about this one.
+        ->and($subscriptions[0]->last_raw)->toContain('METAR SAEZ 271400Z')
+        ->and($subscriptions[0]->last_notified_at)->toBeNull();
+});
+
+it('refuses a sixth watch and says which ones to drop', function () {
+    fakeMetar();
+
+    foreach (['AER', 'BAR', 'CBA', 'MDQ', 'MDZ'] as $code) {
+        MetarSubscription::create([
+            'phone' => PHONE,
+            'anac_code' => $code,
+            'icao_code' => 'SA'.substr($code, 0, 2),
+            'expires_at' => now()->addHours(6),
+            'last_raw' => 'METAR',
+        ]);
+    }
+
+    $reply = bot()->reply('avisame EZE', PHONE);
+
+    expect($reply->messages[0])
+        ->toContain('máximo')
+        ->toContain('*AER*')
+        ->and(MetarSubscription::query()->where('anac_code', 'EZE')->exists())->toBeFalse();
+});
+
+/**
+ * A watch with no baseline would compare against nothing on its first round
+ * and alert on anything at all, so it is better not to exist.
+ */
+it('does not create a watch it cannot establish a baseline for', function () {
+    fakeMetar(Http::response(smnFixture('challenge.html'), 403), Http::response('down', 503));
+
+    expect(bot()->reply('avisame EZE', PHONE)->messages[0])->toContain('no puedo activar la alerta')
+        ->and(MetarSubscription::query()->count())->toBe(0);
+});
+
+it('does not watch an aerodrome the SMN publishes nothing for', function () {
+    fakeMetar(Http::response(smnFixture('metar-empty.html')));
+
+    expect(bot()->reply('avisame EZE', PHONE)->messages[0])->toContain('no tengo desde dónde comparar')
+        ->and(MetarSubscription::query()->count())->toBe(0);
+});
+
+it('says so when the aerodrome has no ICAO code to watch', function () {
+    expect(bot()->reply('avisame alta gracia', PHONE)->messages[0])->toContain('no tiene código OACI');
+
+    Http::assertNothingSent();
+});
+
+/**
+ * Only observations are watched. Quietly setting up a METAR alert for someone
+ * who asked about NOTAMs would leave them wondering why the messages that
+ * arrive are about the wind.
+ */
+it('says it cannot watch notams', function () {
+    expect(bot()->reply('avisame si hay notams nuevos en EZE', PHONE)->messages[0])
+        ->toContain('sólo puedo avisarte cuando cambia el *METAR*');
+
+    expect(MetarSubscription::query()->count())->toBe(0);
+});
+
+it('unsubscribes from a written request', function () {
+    MetarSubscription::create([
+        'phone' => PHONE,
+        'anac_code' => 'EZE',
+        'icao_code' => 'SAEZ',
+        'expires_at' => now()->addHours(6),
+        'last_raw' => 'METAR',
+    ]);
+
+    expect(bot()->reply('no me avises más de EZE', PHONE)->messages[0])->toContain('no te aviso más')
+        ->and(MetarSubscription::query()->count())->toBe(0);
+});
+
+it('unsubscribes from a tapped button', function () {
+    MetarSubscription::create([
+        'phone' => PHONE,
+        'anac_code' => 'EZE',
+        'icao_code' => 'SAEZ',
+        'expires_at' => now()->addHours(6),
+        'last_raw' => 'METAR',
+    ]);
+
+    bot()->reply('🔕 Dar de baja', PHONE, 'unsub:SAEZ');
+
+    expect(MetarSubscription::query()->count())->toBe(0);
+});
+
+it('drops the only watch when the request names no aerodrome', function () {
+    MetarSubscription::create([
+        'phone' => PHONE,
+        'anac_code' => 'EZE',
+        'icao_code' => 'SAEZ',
+        'expires_at' => now()->addHours(6),
+        'last_raw' => 'METAR',
+    ]);
+
+    bot()->reply('dar de baja', PHONE);
+
+    expect(MetarSubscription::query()->count())->toBe(0);
+});
+
+/**
+ * With several running, guessing which one to cancel would silence exactly the
+ * aerodrome the user still wanted.
+ */
+it('asks which watch to drop when several are running', function () {
+    foreach (['EZE', 'AER'] as $code) {
+        MetarSubscription::create([
+            'phone' => PHONE,
+            'anac_code' => $code,
+            'icao_code' => 'SA'.substr($code, 0, 2),
+            'expires_at' => now()->addHours(6),
+            'last_raw' => 'METAR',
+        ]);
+    }
+
+    expect(bot()->reply('dar de baja', PHONE)->messages[0])
+        ->toContain('¿De cuál querés darte de baja?')
+        ->toContain('*EZE*')
+        ->toContain('*AER*')
+        ->and(MetarSubscription::query()->count())->toBe(2);
+});
+
+it('drops every watch when asked for all of them', function () {
+    foreach (['EZE', 'AER'] as $code) {
+        MetarSubscription::create([
+            'phone' => PHONE,
+            'anac_code' => $code,
+            'icao_code' => 'SA'.substr($code, 0, 2),
+            'expires_at' => now()->addHours(6),
+            'last_raw' => 'METAR',
+        ]);
+    }
+
+    bot()->reply('baja todas', PHONE);
+
+    expect(MetarSubscription::query()->count())->toBe(0);
+});
+
+it('lists the running watches without needing an aerodrome', function () {
+    MetarSubscription::create([
+        'phone' => PHONE,
+        'anac_code' => 'EZE',
+        'icao_code' => 'SAEZ',
+        'expires_at' => now()->addHours(6),
+        'last_raw' => 'METAR',
+    ]);
+
+    expect(bot()->reply('mis alertas', PHONE)->messages[0])
+        ->toContain('Tus alertas de METAR')
+        ->toContain('(SAEZ)');
+
+    Http::assertNothingSent();
+});
+
+it('says so when there are no watches to list', function () {
+    expect(bot()->reply('mis alertas', PHONE)->messages[0])->toContain('No tenés alertas activas');
+});
+
+it('ignores expired watches when listing', function () {
+    MetarSubscription::create([
+        'phone' => PHONE,
+        'anac_code' => 'EZE',
+        'icao_code' => 'SAEZ',
+        'expires_at' => now()->subMinute(),
+        'last_raw' => 'METAR',
+    ]);
+
+    expect(bot()->reply('mis alertas', PHONE)->messages[0])->toContain('No tenés alertas activas');
+});
+
+it('keeps one phone watches out of another', function () {
+    MetarSubscription::create([
+        'phone' => 'whatsapp:+5499999999999',
+        'anac_code' => 'EZE',
+        'icao_code' => 'SAEZ',
+        'expires_at' => now()->addHours(6),
+        'last_raw' => 'METAR',
+    ]);
+
+    expect(bot()->reply('mis alertas', PHONE)->messages[0])->toContain('No tenés alertas activas');
+});
+
+/**
+ * A malformed payload is not a reason to fail: fall through to reading the
+ * message as text, which is what the user typed anyway.
+ */
+it('falls back to the text path when the button payload makes no sense', function () {
+    fakeAnac();
+
+    expect(bot()->reply('aeroparque', PHONE, 'nonsense')->messages[0])->toContain('(AER)');
+});
+
+it('explains that alerts need whatsapp when there is no sender', function () {
+    expect(bot()->reply('avisame EZE')->messages[0])->toContain('sólo funcionan por WhatsApp');
+
+    expect(MetarSubscription::query()->count())->toBe(0);
+});
+
+/*
+|--------------------------------------------------------------------------
+| El aviso de cambio
+|--------------------------------------------------------------------------
+*/
+
+it('builds a change alert with what changed above the report', function () {
+    config(['services.twilio.content_sid_alert' => 'HXalert']);
+
+    $reply = bot()->changeAlert(
+        'EZE',
+        new Metar(
+            station: 'SAEZ',
+            airportName: 'EZEIZA',
+            observedAt: '27 - 14:00',
+            raw: 'METAR SAEZ 271400Z 20018G30KT 4000 -RA BKN008 21/17 Q1010',
+        ),
+        ['Categoría de vuelo: VFR → IFR.', 'Visibilidad: 10 km o más → 4000 m.'],
+        '28/02 02:00 UTC',
+    );
+
+    $body = implode("\n", $reply->messages);
+
+    expect($body)
+        ->toContain('cambió el clima')
+        ->toContain('Qué cambió')
+        ->toContain('Categoría de vuelo: VFR → IFR.')
+        ->toContain('METAR SAEZ 271400Z 20018G30KT')
+        // Decoded in Spanish under the raw report, like every other answer.
+        ->toContain('Qué dice')
+        ->toContain('Alerta vigente hasta el 28/02 02:00 UTC')
+        ->and($reply->button?->contentSid)->toBe('HXalert')
+        ->and($reply->button?->payloadValue)->toBe('SAEZ');
+});
+
+/**
+ * A templated body is capped at 1024 characters by WhatsApp, not the 1600 that
+ * applies to free text — and every alert carries a button.
+ */
+it('keeps every alert message inside the template body limit', function () {
+    $reply = bot()->changeAlert(
+        'EZE',
+        new Metar(
+            station: 'SAEZ',
+            airportName: 'EZEIZA',
+            observedAt: '27 - 14:00',
+            raw: 'METAR SAEZ 271400Z 20018G30KT 4000 R11/1200 R29/0800 -TSRA BR BKN008 OVC015CB 21/17 Q1010 WS ALL RWY RMK PP021',
+        ),
+        array_fill(0, 12, 'Visibilidad: 10 km o más → 4000 m.'),
+        '28/02 02:00 UTC',
+    );
+
+    foreach ($reply->messages as $message) {
+        expect(mb_strlen($message))->toBeLessThanOrEqual(1024);
+    }
 });

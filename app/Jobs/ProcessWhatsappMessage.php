@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Contracts\WhatsappSender;
+use App\DataObjects\WhatsappReply;
 use App\Services\WhatsappBotService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -33,6 +34,7 @@ class ProcessWhatsappMessage implements ShouldQueue
         protected string $from,
         protected string $body,
         protected ?string $messageSid = null,
+        protected ?string $buttonPayload = null,
     ) {}
 
     /**
@@ -43,18 +45,42 @@ class ProcessWhatsappMessage implements ShouldQueue
         $this->indicateTyping($sender);
 
         try {
-            $messages = $bot->reply($this->body);
+            $reply = $bot->reply($this->body, $this->from, $this->buttonPayload);
         } catch (Throwable $e) {
             report($e);
 
             // Deliberately not rethrown: if building the reply failed, a retry
             // will most likely fail the same way, and the user is better served
             // by an apology now than by silence while the backoff runs.
-            $messages = ['Tuve un problema procesando tu consulta. Probá de nuevo en unos minutos.'];
+            $reply = WhatsappReply::of('Tuve un problema procesando tu consulta. Probá de nuevo en unos minutos.');
         }
 
-        // Send failures *do* propagate, so the queue retries delivery.
-        foreach ($messages as $message) {
+        $this->deliver($sender, $reply);
+    }
+
+    /**
+     * Send failures *do* propagate, so the queue retries delivery.
+     *
+     * The button, when there is one, rides on the last message only: a long
+     * answer arrives as a numbered run, and repeating the same offer under each
+     * part would read as several offers instead of one.
+     */
+    protected function deliver(WhatsappSender $sender, WhatsappReply $reply): void
+    {
+        $last = count($reply->messages) - 1;
+
+        foreach ($reply->messages as $i => $message) {
+            if ($i === $last && $reply->button !== null) {
+                $sender->sendWithButtons(
+                    $this->from,
+                    $reply->button->contentSid,
+                    $reply->button->variables($message),
+                    $message."\n\n".$reply->button->fallbackHint,
+                );
+
+                continue;
+            }
+
             $sender->send($this->from, $message);
         }
     }
@@ -90,6 +116,7 @@ class ProcessWhatsappMessage implements ShouldQueue
         Log::error('No se pudo responder un mensaje de WhatsApp.', [
             'from' => $this->from,
             'body' => $this->body,
+            'button_payload' => $this->buttonPayload,
             'exception' => $e?->getMessage(),
         ]);
     }

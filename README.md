@@ -39,6 +39,10 @@ NOAA (respaldo, API) ┼→ MetarService (caché + failover) → MetarEnricher
 - **`MetarService`** y **`TafService`** son el equivalente para el tiempo. Los
   dos heredan de `AviationReportService`: la caché, el cooldown y el failover
   son los mismos, porque el problema de acceder al SMN es el mismo.
+- **`MetarConditions`** es lo único que no lee para mostrar sino para comparar:
+  saca del METAR los cinco grupos que deciden si un cambio merece despertar a
+  alguien. Es lo que hace posible la suscripción "avisame si cambia" sin
+  convertirla en un despertador horario.
 
 ### METAR y TAF no son lo mismo
 
@@ -183,7 +187,71 @@ php artisan queue:work --tries=3
 
 En producción esto va bajo systemd o supervisor, junto con
 `php artisan schedule:work` para el refresco horario de aeródromos
-(`notams:refresh-airports`).
+(`notams:refresh-airports`) y la ronda de alertas (`metar:watch`).
+
+### Alertas: "avisame si cambia"
+
+Cada respuesta de METAR trae un botón **🔔 Avisarme 12 h**. Tocarlo deja una
+suscripción, y a partir de ahí el bot escribe solo cuando el METAR de ese
+aeródromo cambia de verdad. También funciona escrito: `"avisame EZE"`,
+`"avisame EZE por 6 horas"`, `"mis alertas"`, `"baja EZE"`, `"baja todas"`.
+
+Cada aviso lleva a su vez un botón **🔕 Dar de baja**.
+
+**Qué cuenta como un cambio.** El METAR se reemite cada hora y casi siempre
+difiere del anterior: la temperatura se mueve un grado, el viento rola dos
+nudos. Avisar por eso sería un despertador horario, así que la comparación
+(`App\Support\MetarConditions`) se hace sobre los grupos que un piloto
+efectivamente acciona, y por banda antes que por delta:
+
+- la llegada de un **SPECI** — el propio SMN lo emitió porque algo cruzó un
+  umbral, y ese criterio manda sobre el nuestro;
+- **categoría de vuelo** (VFR / MVFR / IFR / LIFR), siempre por el peor entre
+  techo y visibilidad;
+- **viento**: ±10 kt, aparición o desaparición de ráfaga, o ±30° de dirección
+  pero sólo con 10 kt o más — abajo de eso la dirección deambula sola;
+- **visibilidad** y **techo** que cruzan una banda (800 / 1500 / 3000 / 5000 /
+  8000 m; 200 / 500 / 1000 / 1500 / 3000 ft);
+- **fenómenos** que empiezan, terminan o cambian de intensidad (`-RA` → `+TSRA`);
+- **QNH** de ±2 hPa.
+
+La línea de base avanza en cada ronda aunque no se avise. Dejarla en el último
+reporte *notificado* convertiría una deriva lenta — un nudo por hora — en un
+aviso seis horas después por un cambio que nadie habría visto ocurrir.
+
+**Por qué vencen.** WhatsApp sólo deja escribirle libremente a alguien dentro de
+las 24 horas de su último mensaje; fuera de esa ventana hace falta una plantilla
+aprobada. Una suscripción dura 12 horas por defecto y 24 como máximo
+(`METAR_WATCH_TTL` / `METAR_WATCH_MAX_TTL`), así que todo aviso cae dentro de la
+ventana. Volver a suscribirse la renueva; hay un tope de 5 aeródromos por número
+(`METAR_WATCH_MAX`).
+
+La ronda corre cada diez minutos, alineada con el TTL de caché del METAR, así
+que cuesta como mucho un pedido real por estación vigilada por más gente que la
+esté mirando:
+
+```bash
+php artisan metar:watch
+```
+
+### Los botones
+
+WhatsApp no dibuja un botón desde texto libre: hace falta una *content template*
+de Twilio. Se crean una sola vez por cuenta y sus SID van al `.env`:
+
+```bash
+php artisan whatsapp:content-templates
+# TWILIO_CONTENT_SID_METAR=HX...
+# TWILIO_CONTENT_SID_ALERT=HX...
+```
+
+No se someten a aprobación de WhatsApp y no hace falta: la aprobación compra el
+derecho a escribirle a alguien de la nada, y estas dos sólo salen dentro de la
+ventana que abrió el mensaje del propio usuario.
+
+**Sin esos SID el bot funciona igual.** Los dos mensajes salen en texto plano
+con el comando escrito equivalente al pie (_"Respondeme «avisame SAEZ»"_). El
+botón ahorra tipear; nunca es el único camino.
 
 Con SQLite, activá WAL para que el worker y el servidor web no se bloqueen
 mutuamente:

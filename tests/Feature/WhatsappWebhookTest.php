@@ -76,3 +76,28 @@ it('acknowledges but queues nothing for an empty body', function () {
 
     Queue::assertNothingPushed();
 });
+
+/**
+ * A tapped quick reply arrives as an ordinary inbound message whose Body is the
+ * button's caption, plus the action id we put on the button ourselves. That id
+ * is what makes the tap unambiguous, so it has to reach the job.
+ */
+it('passes a tapped button payload through to the job', function () {
+    postSigned([
+        'From' => 'whatsapp:+5491111111111',
+        'Body' => '🔔 Avisarme 12 h',
+        'ButtonPayload' => 'sub:SAEZ:12',
+    ])->assertOk();
+
+    Queue::assertPushed(function (ProcessWhatsappMessage $job) {
+        return (new ReflectionProperty($job, 'buttonPayload'))->getValue($job) === 'sub:SAEZ:12';
+    });
+});
+
+it('leaves the button payload null for a typed message', function () {
+    postSigned(['From' => 'whatsapp:+5491111111111', 'Body' => 'ezeiza'])->assertOk();
+
+    Queue::assertPushed(function (ProcessWhatsappMessage $job) {
+        return (new ReflectionProperty($job, 'buttonPayload'))->getValue($job) === null;
+    });
+});

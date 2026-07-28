@@ -29,8 +29,14 @@ class WhatsappWebhookController extends Controller
         // Twilio anchors the typing indicator to the message being answered.
         $messageSid = (string) $request->input('MessageSid');
 
-        if ($from !== '' && $body !== '') {
-            ProcessWhatsappMessage::dispatch($from, $body, $messageSid ?: null);
+        // Set when the message is a tapped quick-reply button rather than typed
+        // text: it carries the action id we put on the button ourselves. Body
+        // arrives too, holding the button's visible caption — which is why the
+        // dispatch guard below still holds for a tap.
+        $buttonPayload = (string) $request->input('ButtonPayload');
+
+        if ($from !== '' && ($body !== '' || $buttonPayload !== '')) {
+            ProcessWhatsappMessage::dispatch($from, $body, $messageSid ?: null, $buttonPayload ?: null);
         }
 
         return response('<Response></Response>', Response::HTTP_OK)

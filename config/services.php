@@ -56,6 +56,25 @@ return [
         // serves current data while keeping request volume low — which is what
         // actually keeps us out of the SMN's bot challenge.
         'ttl' => env('METAR_TTL', 600),
+
+        // Standing "tell me when this changes" subscriptions.
+        'watch' => [
+            // How long a subscription lasts when nobody says otherwise. Twelve
+            // hours is the span of a flight-planning day, and it is what the
+            // one-tap button on every METAR reply grants.
+            'default_ttl' => env('METAR_WATCH_TTL', 43200),
+
+            // The ceiling, and not an arbitrary one: WhatsApp only lets us send
+            // freely inside 24 hours of the user's last message, and every alert
+            // has to land inside that window or it needs an approved template.
+            // A subscription that outlives the window would go silent exactly
+            // when it mattered.
+            'max_ttl' => env('METAR_WATCH_MAX_TTL', 86400),
+
+            // Origin, destination, alternate, and room to spare — with a ceiling
+            // on how much one number can cost us in messages.
+            'max_per_phone' => env('METAR_WATCH_MAX', 5),
+        ],
     ],
 
     'taf' => [
@@ -93,6 +112,15 @@ return [
         'sid' => env('TWILIO_ACCOUNT_SID'),
         'token' => env('TWILIO_AUTH_TOKEN'),
         'whatsapp_from' => env('TWILIO_WHATSAPP_FROM'),
+
+        // Content templates for the two messages that carry a button. WhatsApp
+        // has no free-text way to send one, so these are created once per Twilio
+        // account with `php artisan whatsapp:content-templates` and their SIDs
+        // pasted here. Left blank, both messages still go out as plain text with
+        // the equivalent written command — the button is a convenience on top of
+        // an interface that works without it.
+        'content_sid_metar' => env('TWILIO_CONTENT_SID_METAR'),
+        'content_sid_alert' => env('TWILIO_CONTENT_SID_ALERT'),
     ],
 
 ];

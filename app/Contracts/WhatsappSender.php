@@ -12,6 +12,21 @@ interface WhatsappSender
     public function send(string $to, string $body): void;
 
     /**
+     * Deliver a message that carries tappable buttons underneath it.
+     *
+     * WhatsApp will not render a button from free text: it has to come from a
+     * content template registered with the provider ahead of time, named here by
+     * $contentSid and filled in with $variables. When that SID is blank — the
+     * account has none registered yet — $fallback is sent as an ordinary message
+     * instead, so the feature degrades to the written command rather than
+     * failing.
+     *
+     * @param  array<int, string>  $variables  Template substitutions, keyed 1, 2, … — json_encode
+     *                                         renders them as the "1"/"2" keys Twilio expects.
+     */
+    public function sendWithButtons(string $to, string $contentSid, array $variables, string $fallback): void;
+
+    /**
      * Show the "typing…" dots to whoever sent us $inboundMessageId, so the
      * chat doesn't look dead while we build the reply.
      *

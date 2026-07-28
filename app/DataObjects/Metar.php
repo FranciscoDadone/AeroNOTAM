@@ -45,6 +45,26 @@ final readonly class Metar
     }
 
     /**
+     * The inverse of fromArray(), for the places that have to hand an
+     * observation across a boundary the class shape cannot cross — a cache
+     * entry or a queued job payload, either of which can outlive the deploy
+     * that wrote it.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(): array
+    {
+        return [
+            'station' => $this->station,
+            'airport_name' => $this->airportName,
+            'issued_at' => $this->observedAt,
+            'raw' => $this->raw,
+            'source' => $this->source,
+            'explanation' => $this->explanation,
+        ];
+    }
+
+    /**
      * @param  array<int, string>  $explanation
      */
     public function withExplanation(array $explanation): self

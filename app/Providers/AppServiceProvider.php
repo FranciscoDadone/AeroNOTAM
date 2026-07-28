@@ -13,6 +13,7 @@ use App\Services\TwilioWhatsappSender;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -43,6 +44,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // In production nginx terminates TLS and proxies plain http to the
+        // container, so generated URLs would come out as http:// and get
+        // downgraded on the way back to the browser.
+        if ($this->app->environment('production')) {
+            URL::forceScheme('https');
+        }
+
         // Every uncached NOTAM request can fan out into one paid LLM call per
         // NOTAM, so an unthrottled public endpoint is a trivial way for anyone
         // to burn through the OpenRouter budget. Keep the cap well below what

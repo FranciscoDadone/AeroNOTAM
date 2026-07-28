@@ -42,16 +42,17 @@
   <div class="mx-auto grid w-full max-w-[1120px] grid-cols-1 items-start gap-12 px-6 lg:grid-cols-[1fr_360px] lg:gap-16">
     <div>
       <span class="inline-flex items-center rounded-lg border border-air/25 bg-air-soft px-3 py-1.5 font-mono text-xs font-medium tracking-[0.1em] text-air uppercase">
-        Tu asistente aeronáutico · NOTAM · METAR · TAF
+        Tu asistente aeronáutico · Argentina
       </span>
 
-      <h1 class="mt-6 mb-5 text-[clamp(2.3rem,5vw,3.6rem)] font-semibold leading-[1.05] tracking-[-0.03em]">
-        El parte aeronáutico, <span class="text-air">en español</span> y por WhatsApp.
+      <h1 class="mt-6 mb-5 text-[clamp(2.1rem,4.3vw,3.1rem)] font-semibold leading-[1.08] tracking-[-0.03em]">
+        NOTAM, METAR y TAF de los aeródromos argentinos,
+        <span class="text-air">en español</span> y por WhatsApp.
       </h1>
 
       <p class="max-w-[34em] text-[clamp(1.08rem,1.6vw,1.25rem)] leading-relaxed text-muted">
         Escribí <b class="font-semibold text-body">«EZE»</b> y recibí los NOTAM activos, el estado
-        del tiempo y el pronóstico de cualquier aeródromo argentino — decodificados a
+        del tiempo y el pronóstico de cualquier aeródromo de Argentina — decodificados a
         español legible, con el texto crudo siempre a la vista.
       </p>
 
@@ -353,8 +354,9 @@
     <div class="rounded-2xl border border-line bg-panel px-6 py-12 text-center sm:px-10">
       <img src="/images/flybot-logo.webp" alt="FlyBot" width="104" height="104" class="mx-auto mb-6 size-26">
       <h2 class="text-[clamp(1.7rem,3vw,2.2rem)] font-semibold tracking-[-0.025em]">Probalo con tu aeródromo.</h2>
-      <p class="mx-auto mt-4 mb-8 max-w-[46ch] text-lg text-muted">
-        Mandale «EZE» y ves la respuesta completa en el chat. Sin registro, sin instalar nada.
+      <p class="mx-auto mt-4 mb-8 max-w-[52ch] text-lg text-muted">
+        Mandale «EZE» —o cualquier aeródromo de Argentina— y ves la respuesta completa
+        en el chat. Sin registro, sin instalar nada.
       </p>
       @if ($link)
         <a href="{{ $link }}" target="_blank" rel="noopener" class="btn bg-wa text-white hover:bg-[#0b5f33]">Abrir en WhatsApp →</a>

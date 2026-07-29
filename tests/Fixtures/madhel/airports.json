@@ -1,0 +1,65 @@
+{
+    "count": 15,
+    "results": [
+        {
+            "local_identifier": "ACB",
+            "human_readable_identifier": "CORONEL BOGADO / AGROSERVICIOS - (ACB) - DRCE - PRIVADO NO CONTROLADO [** USO AGROAÉREO **]"
+        },
+        {
+            "local_identifier": "AER",
+            "human_readable_identifier": "BUENOS AIRES / AEROPARQUE J. NEWBERY - (AER / SABE) - DRCE - PÚBLICO CONTROLADO INTERNACIONAL"
+        },
+        {
+            "local_identifier": "CCA",
+            "human_readable_identifier": "CURUZÚ CUATIÁ - (CCA / SATU) - DRNE - PÚBLICO NO CONTROLADO [** AD CERRADO (CLSD) **]"
+        },
+        {
+            "local_identifier": "CDF",
+            "human_readable_identifier": "STOL COMODORO RIVADAVIA / CHACRAS DEL FARO (CDF) - DRSU - PRIVADO NO CONTROLADO"
+        },
+        {
+            "local_identifier": "CDU",
+            "human_readable_identifier": "CONCEPCIÓN DEL URUGUAY - (CDU / SRAU) - DRCE - PÚBLICO NO CONTROLADO"
+        },
+        {
+            "local_identifier": "CZU",
+            "human_readable_identifier": "CURUZÚ CUATIÁ / AEROCLUB - (CZU) - DRNE - PÚBLICO NO CONTROLADO"
+        },
+        {
+            "local_identifier": "ELP",
+            "human_readable_identifier": "CLUB DE PLANEADORES SANTA ROSA / AERÓDROMO EL PAMPERO - (ELP) - DRCE - PÚBLICO NO CONTROLADO"
+        },
+        {
+            "local_identifier": "EZE",
+            "human_readable_identifier": "EZEIZA / MINISTRO PISTARINI - (EZE / SAEZ) - DRCE - PÚBLICO CONTROLADO INTERNACIONAL"
+        },
+        {
+            "local_identifier": "GAL",
+            "human_readable_identifier": "RÍO GALLEGOS / PILOTO CIVIL N. FERNÁNDEZ - (GAL / SAWG) - DRSU - PÚBLICO CONTROLADO INTERNACIONAL"
+        },
+        {
+            "local_identifier": "HAC",
+            "human_readable_identifier": "ALPA CORRAL / HELIPUERTO JUAN Y LUCI - (HAC) - DRNO - PRIVADO NO CONTROLADO"
+        },
+        {
+            "local_identifier": "HFA",
+            "human_readable_identifier": "BUENOS AIRES / FUERZA AÉREA (EDIFICIO CÓNDOR) - (HFA) - FIR EZE - NO CONTROLADO"
+        },
+        {
+            "local_identifier": "HIF",
+            "human_readable_identifier": "HELIPUERTO EZEIZA / IFE - INSTITUTO DE FORMACIÓN EZEIZA - FIR EZE - MILITAR NO CONTROLADO (HABILITADO POR LA FUERZA AÉREA ARGENTINA)"
+        },
+        {
+            "local_identifier": "PAL",
+            "human_readable_identifier": "EL PALOMAR - (PAL / SADP) - DRCE - PÚBLICO CONTROLADO"
+        },
+        {
+            "local_identifier": "RGR",
+            "human_readable_identifier": "RÍO GALLEGOS / RÍO CHICO - (RGR) - DRSU - PRIVADO NO CONTROLADO"
+        },
+        {
+            "local_identifier": "RYD",
+            "human_readable_identifier": "VILLA REYNOLDS - (RYD / SAOR) - DRNO - PÚBLICO CONTROLADO"
+        }
+    ]
+}

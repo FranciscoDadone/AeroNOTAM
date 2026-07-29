@@ -45,10 +45,14 @@ class RefreshAirports extends Command
             ->values()
             ->all();
 
-        // icao_code is deliberately absent from the update list: ANAC's
-        // selector doesn't publish ICAO codes, so a refresh must never blank
-        // out the mappings the seed established.
-        Airport::upsert($rows, ['anac_code'], ['name', 'is_aerodrome', 'last_seen_active_at', 'updated_at']);
+        // Only last_seen_active_at is updated. What this command actually
+        // learns is *which* aerodromes have a NOTAM today; everything else
+        // about them — name, OACI code, classification — comes from MADHEL,
+        // whose entries are fuller and often differ from the truncated labels
+        // in the selector ("SAN LUIS/BRIGADIER MAYOR D. CESAR RAUL"). Letting
+        // the hourly refresh write them back would make the registry oscillate.
+        // The name on the INSERT still stands for codes MADHEL doesn't list.
+        Airport::upsert($rows, ['anac_code'], ['is_aerodrome', 'last_seen_active_at', 'updated_at']);
 
         $added = Airport::query()->count() - $before;
 

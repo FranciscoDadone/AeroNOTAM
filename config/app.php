@@ -69,6 +69,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Admin Panel Timezone
+    |--------------------------------------------------------------------------
+    |
+    | Everything is stored and answered in UTC, but "consultas por hora del día"
+    | only means something against the day the users actually live in. Used by
+    | the admin panel alone — never by anything the bot sends.
+    |
+    */
+
+    'display_timezone' => env('APP_DISPLAY_TIMEZONE', 'America/Argentina/Buenos_Aires'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------
     |

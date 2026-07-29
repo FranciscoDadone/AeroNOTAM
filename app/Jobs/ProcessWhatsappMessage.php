@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Contracts\WhatsappSender;
 use App\DataObjects\WhatsappReply;
+use App\Models\WhatsappMessage;
 use App\Services\WhatsappBotService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -35,6 +36,10 @@ class ProcessWhatsappMessage implements ShouldQueue
         protected string $body,
         protected ?string $messageSid = null,
         protected ?string $buttonPayload = null,
+
+        // The row the webhook already opened for this message, when there is
+        // one: the local test endpoint and the tests call the job directly.
+        protected ?WhatsappMessage $log = null,
     ) {}
 
     /**
@@ -42,12 +47,17 @@ class ProcessWhatsappMessage implements ShouldQueue
      */
     public function handle(WhatsappBotService $bot, WhatsappSender $sender): void
     {
+        $startedAt = microtime(true);
+
         $this->indicateTyping($sender);
 
         try {
             $reply = $bot->reply($this->body, $this->from, $this->buttonPayload);
+            $this->log?->recordUnderstanding($bot->lastContext());
         } catch (Throwable $e) {
             report($e);
+            $this->log?->recordUnderstanding($bot->lastContext());
+            $this->log?->recordFailure($e->getMessage());
 
             // Deliberately not rethrown: if building the reply failed, a retry
             // will most likely fail the same way, and the user is better served
@@ -56,6 +66,8 @@ class ProcessWhatsappMessage implements ShouldQueue
         }
 
         $this->deliver($sender, $reply);
+
+        $this->log?->recordReply($reply->messages, $startedAt);
     }
 
     /**
@@ -113,6 +125,8 @@ class ProcessWhatsappMessage implements ShouldQueue
      */
     public function failed(?Throwable $e): void
     {
+        $this->log?->recordFailure($e?->getMessage());
+
         Log::error('No se pudo responder un mensaje de WhatsApp.', [
             'from' => $this->from,
             'body' => $this->body,

@@ -12,10 +12,7 @@ class AirportSeeder extends Seeder
         $rows = [];
 
         foreach ($this->airports() as $row) {
-            $rows[] = [
-                'anac_code' => $row['anac_code'],
-                'icao_code' => $row['icao_code'],
-                'name' => $row['name'],
+            $rows[] = $row + [
                 'is_aerodrome' => Airport::isAerodromeCode($row['anac_code']),
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -24,11 +21,20 @@ class AirportSeeder extends Seeder
 
         // Idempotent: re-seeding refreshes names without discarding the
         // last_seen_active_at history the refresh command has accrued.
-        Airport::upsert($rows, ['anac_code'], ['icao_code', 'name', 'is_aerodrome', 'updated_at']);
+        //
+        // Chunked because SQLite counts every bound value against a single
+        // statement limit, and the snapshot is 700-odd rows wide.
+        foreach (array_chunk($rows, 200) as $chunk) {
+            Airport::upsert(
+                $chunk,
+                ['anac_code'],
+                ['icao_code', 'name', 'is_aerodrome', 'kind', 'access', 'is_controlled', 'is_closed', 'updated_at'],
+            );
+        }
     }
 
     /**
-     * @return array<int, array{anac_code: string, icao_code: string|null, name: string}>
+     * @return array<int, array{anac_code: string, icao_code: string|null, name: string, kind: string, access: string|null, is_controlled: bool, is_closed: bool}>
      */
     protected function airports(): array
     {

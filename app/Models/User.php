@@ -27,6 +27,10 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+
+            // Deliberately absent from #[Fillable]: nobody gets the panel from
+            // a mass-assigned array, only from `php artisan admin:create`.
+            'is_admin' => 'boolean',
         ];
     }
 }

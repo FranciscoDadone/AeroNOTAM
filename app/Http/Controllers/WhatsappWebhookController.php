@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ProcessWhatsappMessage;
+use App\Models\WhatsappMessage;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
@@ -35,8 +36,23 @@ class WhatsappWebhookController extends Controller
         // dispatch guard below still holds for a tap.
         $buttonPayload = (string) $request->input('ButtonPayload');
 
+        // WhatsApp's display name for the sender. Absent when the user has none
+        // set, and always self-declared — good enough to put a face on the
+        // message log, never good enough to identify anyone by.
+        $profileName = trim((string) $request->input('ProfileName'));
+
         if ($from !== '' && ($body !== '' || $buttonPayload !== '')) {
-            ProcessWhatsappMessage::dispatch($from, $body, $messageSid ?: null, $buttonPayload ?: null);
+            // Logged here rather than inside the job so that a message which is
+            // never answered still shows up in the panel.
+            $log = WhatsappMessage::create([
+                'phone' => $from,
+                'profile_name' => $profileName ?: null,
+                'message_sid' => $messageSid ?: null,
+                'body' => $body,
+                'button_payload' => $buttonPayload ?: null,
+            ]);
+
+            ProcessWhatsappMessage::dispatch($from, $body, $messageSid ?: null, $buttonPayload ?: null, $log);
         }
 
         return response('<Response></Response>', Response::HTTP_OK)

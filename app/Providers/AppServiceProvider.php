@@ -10,6 +10,7 @@ use App\Services\SmnMetarSource;
 use App\Services\SmnTafSource;
 use App\Services\TafService;
 use App\Services\TwilioWhatsappSender;
+use App\Support\AdminMetrics;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -37,6 +38,10 @@ class AppServiceProvider extends ServiceProvider
             $app->make(SmnTafSource::class),
             $app->make(NoaaTafSource::class),
         ]));
+
+        $this->app->bind(AdminMetrics::class, fn () => new AdminMetrics(
+            (string) config('app.display_timezone'),
+        ));
     }
 
     /**

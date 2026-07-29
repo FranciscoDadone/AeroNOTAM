@@ -1,6 +1,7 @@
 <?php
 
 use App\DataObjects\Metar;
+use App\Models\Airport;
 use App\Models\MetarSubscription;
 use App\Services\WhatsappBotService;
 use Illuminate\Support\Facades\Cache;
@@ -60,18 +61,34 @@ it('does not match FIR-wide advisory pseudo-codes', function () {
 });
 
 /**
- * Córdoba has three aerodromes. Silently picking one could send a pilot
- * the wrong aerodrome's NOTAMs, so the bot asks instead.
+ * Seven places in MADHEL are called Córdoba something. Answering with
+ * Taravella, the city's international airport, is not a coin flip: it is the
+ * only public towered one among a factory airfield, a military flight school
+ * and four private helipads.
  */
-it('asks which aerodrome when the name is ambiguous', function () {
+it('answers an ambiguous city name with its main aerodrome', function () {
     fakeAnac();
 
-    $reply = bot()->reply('cordoba')->messages;
+    expect(bot()->reply('cordoba')->messages[0])->toContain('(CBA)');
+});
+
+/**
+ * When ranking has nothing to go on, the bot asks rather than guesses:
+ * handing a pilot the wrong aerodrome's NOTAMs is the failure that matters.
+ */
+it('asks which aerodrome when two of the same kind share a name', function () {
+    fakeAnac();
+
+    foreach (['TWA', 'TWB'] as $code) {
+        Airport::create(['anac_code' => $code, 'name' => 'VILLA ZURUMBAMBA', 'access' => 'publico']);
+    }
+
+    $reply = bot()->reply('zurumbamba')->messages;
 
     expect($reply)->toHaveCount(1)
         ->and($reply[0])
         ->toContain('varios aeródromos')
-        ->toContain('*CBA*')
+        ->toContain('*TWA*')
         ->toContain('Respondeme con el código');
 });
 

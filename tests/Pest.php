@@ -51,6 +51,22 @@ function fakeAnac(mixed $pib = null): void
 }
 
 /**
+ * A slice of ANAC's MADHEL registry, captured verbatim from
+ * datos.anac.gob.ar. The entries were chosen for the shapes the parser has to
+ * survive: with and without an OACI code, an unparenthesised code, a dash that
+ * is really an en dash, and the two aerodromes whose OACI codes MADHEL assigns
+ * differently than our old hand-written seed did.
+ */
+function fakeMadhel(mixed $response = null): void
+{
+    Http::fake([
+        '*/madhel/api/v2/airports/*' => $response ?? Http::response(
+            json_decode(file_get_contents(__DIR__.'/Fixtures/madhel/airports.json'), true),
+        ),
+    ]);
+}
+
+/**
  * HTML captured verbatim from ssl.smn.gob.ar/mensajes — the legacy application
  * that www.smn.gob.ar/metar and /taf embed in an iframe. Same reasoning as the
  * ANAC fixtures: the scraper is the only thing standing between us and a

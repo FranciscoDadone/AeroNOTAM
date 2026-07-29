@@ -4,7 +4,19 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property string $anac_code
+ * @property string|null $icao_code
+ * @property string $name
+ * @property bool $is_aerodrome
+ * @property string $kind
+ * @property string|null $access
+ * @property bool $is_controlled
+ * @property bool $is_closed
+ * @property Carbon|null $last_seen_active_at
+ */
 class Airport extends Model
 {
     protected $fillable = [
@@ -12,6 +24,10 @@ class Airport extends Model
         'icao_code',
         'name',
         'is_aerodrome',
+        'kind',
+        'access',
+        'is_controlled',
+        'is_closed',
         'last_seen_active_at',
     ];
 
@@ -19,6 +35,8 @@ class Airport extends Model
     {
         return [
             'is_aerodrome' => 'boolean',
+            'is_controlled' => 'boolean',
+            'is_closed' => 'boolean',
             'last_seen_active_at' => 'datetime',
         ];
     }
@@ -35,6 +53,23 @@ class Airport extends Model
     public function scopeRealAerodromes(Builder $query): Builder
     {
         return $query->where('is_aerodrome', true);
+    }
+
+    /**
+     * The aerodromes a person might plausibly name in free text: open to the
+     * public and not closed. MADHEL's other ~450 entries are private strips,
+     * agricultural runways and heliports — nobody asks for "the NOTAMs of
+     * Coronel Bogado / Agroservicios" by name, and carrying them into a name
+     * match or an AI prompt only adds noise and tokens.
+     *
+     * @param  Builder<Airport>  $query
+     * @return Builder<Airport>
+     */
+    public function scopePubliclyKnown(Builder $query): Builder
+    {
+        return $query->realAerodromes()
+            ->where('access', 'publico')
+            ->where('is_closed', false);
     }
 
     /**

@@ -6,6 +6,7 @@ use App\Ai\Agents\AirportMatcherAgent;
 use App\DataObjects\Metar;
 use App\DataObjects\Notam;
 use App\DataObjects\ReplyButton;
+use App\DataObjects\ReplyContext;
 use App\DataObjects\Taf;
 use App\DataObjects\WhatsappReply;
 use App\Models\MetarSubscription;
@@ -109,6 +110,12 @@ class WhatsappBotService
 
     protected const BUTTON_UNSUBSCRIBE = '/^unsub:([A-Z]{4})$/';
 
+    /**
+     * What the last call to reply() made of the message. Kept aside instead of
+     * being returned with the reply because only the message log cares.
+     */
+    protected ReplyContext $context;
+
     public function __construct(
         protected AnacNotamService $anac,
         protected NotamEnricher $enricher,
@@ -117,7 +124,9 @@ class WhatsappBotService
         protected MetarEnricher $metarEnricher,
         protected TafService $tafService,
         protected TafEnricher $tafEnricher,
-    ) {}
+    ) {
+        $this->context = new ReplyContext;
+    }
 
     /**
      * Build the natural-language WhatsApp reply for an incoming message.
@@ -128,6 +137,8 @@ class WhatsappBotService
      */
     public function reply(string $message, ?string $from = null, ?string $buttonPayload = null): WhatsappReply
     {
+        $this->context = new ReplyContext;
+
         if ($from !== null && $buttonPayload !== null) {
             $tapped = $this->replyToButton(trim($buttonPayload), $from);
 
@@ -142,7 +153,7 @@ class WhatsappBotService
             return WhatsappReply::of($this->helpMessage());
         }
 
-        $topic = $this->topic($message);
+        $topic = $this->context->topic = $this->topic($message);
 
         if (in_array($topic, ['list', 'subscribe', 'unsubscribe'], true)) {
             return $from === null
@@ -150,7 +161,7 @@ class WhatsappBotService
                 : $this->subscriptionReply($topic, $message, $from);
         }
 
-        $indicator = $this->matchIndicator($message);
+        $indicator = $this->context->anacCode = $this->matchIndicator($message);
 
         if ($indicator === null) {
             // Several aerodromes share the name the user typed (Córdoba has
@@ -171,6 +182,16 @@ class WhatsappBotService
     }
 
     /**
+     * How the last message was interpreted. Valid straight after reply(),
+     * including when it threw: whatever was worked out before the failure is
+     * still worth logging.
+     */
+    public function lastContext(): ReplyContext
+    {
+        return $this->context;
+    }
+
+    /**
      * Act on a tapped button.
      *
      * Nothing here is inferred. The payload is a string this service put on the
@@ -182,11 +203,15 @@ class WhatsappBotService
     protected function replyToButton(string $payload, string $from): ?WhatsappReply
     {
         if (preg_match(self::BUTTON_SUBSCRIBE, $payload, $m) === 1) {
-            return $this->subscribe($this->airports->resolve($m[1]), $from, (int) $m[2] * 3600);
+            $this->context->topic = 'subscribe';
+
+            return $this->subscribe($this->context->anacCode = $this->airports->resolve($m[1]), $from, (int) $m[2] * 3600);
         }
 
         if (preg_match(self::BUTTON_UNSUBSCRIBE, $payload, $m) === 1) {
-            return $this->unsubscribe($this->airports->resolve($m[1]), $from);
+            $this->context->topic = 'unsubscribe';
+
+            return $this->unsubscribe($this->context->anacCode = $this->airports->resolve($m[1]), $from);
         }
 
         return null;
@@ -245,7 +270,7 @@ class WhatsappBotService
             return $this->listReply($from);
         }
 
-        $indicator = $this->matchIndicator($message);
+        $indicator = $this->context->anacCode = $this->matchIndicator($message);
 
         if ($indicator === null) {
             return $topic === 'unsubscribe'

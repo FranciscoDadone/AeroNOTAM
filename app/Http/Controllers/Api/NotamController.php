@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\NotamIndexRequest;
 use App\Http\Resources\NotamResource;
+use App\Models\Airport;
 use App\Services\AnacNotamService;
 use App\Services\NotamEnricher;
 use App\Support\AirportResolver;
@@ -66,23 +67,27 @@ class NotamController extends Controller
     /**
      * GET /api/notams/aerodromos
      *
-     * Lists the place indicators ANAC currently reports as having active NOTAMs.
+     * Every place indicator that can be asked about — ANAC's full MADHEL
+     * registry, not just the handful with a NOTAM today. It used to be the
+     * latter, scraped live, which meant this endpoint went 502 whenever ANAC
+     * was down and quietly hid aerodromes that simply had nothing active.
      */
     public function aerodromos(): JsonResponse
     {
-        try {
-            $validIndicators = $this->anac->getValidIndicators();
-        } catch (Throwable $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'No se pudo contactar al servicio de NOTAM de ANAC en este momento.',
-            ], 502);
-        }
-
-        $aerodromos = collect($validIndicators)
-            ->map(fn (string $nombre, string $codigo) => ['codigo' => $codigo, 'nombre' => $nombre])
-            ->values();
+        $aerodromos = Airport::query()
+            ->realAerodromes()
+            ->orderBy('anac_code')
+            ->get()
+            ->map(fn (Airport $airport) => [
+                'codigo' => $airport->anac_code,
+                'nombre' => $airport->name,
+                'oaci' => $airport->icao_code,
+                'tipo' => $airport->kind,
+                'acceso' => $airport->access,
+                'controlado' => $airport->is_controlled,
+                'cerrado' => $airport->is_closed,
+                'notam_activo' => $airport->last_seen_active_at?->isAfter(now()->subDay()) ?? false,
+            ]);
 
         return response()->json([
             'cantidad' => $aerodromos->count(),

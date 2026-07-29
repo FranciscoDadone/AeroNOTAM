@@ -41,6 +41,16 @@ return [
         'notams_ttl' => env('ANAC_NOTAM_TTL', 300),
     ],
 
+    // ANAC's aerodrome registry (MADHEL), on a different host than the NOTAM
+    // service and read only by notams:import-madhel.
+    'madhel' => [
+        'base_url' => env('MADHEL_BASE_URL', 'https://datos.anac.gob.ar'),
+
+        // Below this the response is treated as truncated and the import is
+        // abandoned, rather than letting a bad reply shrink the registry.
+        'minimum_count' => env('MADHEL_MINIMUM_COUNT', 500),
+    ],
+
     'weather' => [
         // How long to leave a source alone after it fails. The SMN's challenge
         // tightens the more it is hit, so backing off is what lets the block

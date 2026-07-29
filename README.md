@@ -102,9 +102,11 @@ existe: viento, visibilidad, fenómenos y nubes significan lo mismo se esté
 informando lo que el tiempo **es** o lo que se pronostica que **será**. Lo único
 que cambia entre `MetarDecoder` y `TafDecoder` es la estructura de alrededor.
 
-El registro de aeródromos vive en la tabla `airports`. Es necesario porque el
-selector de ANAC sólo lista lugares con NOTAM activos y, por lo tanto, no puede
-distinguir "código inexistente" de "aeródromo real sin novedades hoy".
+El registro de aeródromos vive en la tabla `airports` y se importa entero de
+MADHEL, el manual de aeródromos y helipuertos de ANAC (712 lugares). Es
+necesario porque el selector de NOTAM de ANAC sólo lista lugares con novedades
+activas y, por lo tanto, no puede distinguir "código inexistente" de "aeródromo
+real sin novedades hoy". Ver [El registro de aeródromos](#el-registro-de-aeródromos).
 
 ## Puesta en marcha
 
@@ -139,7 +141,7 @@ los tres procesos que la aplicación necesita para estar entera:
 | --- | --- |
 | `app` | La API REST y el webhook de WhatsApp, en `:8090` (`APP_PORT` lo cambia). |
 | `queue` | `queue:work`. **Sin él el bot no contesta**: toda respuesta sale de un job. |
-| `scheduler` | `schedule:work`: `notams:refresh-airports` y la ronda de `metar:watch`. |
+| `scheduler` | `schedule:work`: `notams:refresh-airports`, `notams:import-madhel` y la ronda de `metar:watch`. |
 
 Un cuarto servicio, `migrate`, corre una vez antes que los demás y termina:
 migra, siembra los aeródromos y pone la base en modo WAL. Tenerlo aparte es lo
@@ -212,7 +214,7 @@ enlace, en vez de uno roto.
 | --- | --- |
 | `GET /api/v1/notams?aerodromo=EZE` | NOTAM activos. Acepta código ANAC (`EZE`) u OACI (`SAEZ`). |
 | `GET /api/v1/notams?aerodromo=EZE&decode=false` | Igual, pero sin decodificación: no gasta llamadas a la IA. |
-| `GET /api/v1/notams/aerodromos` | Aeródromos que ANAC reporta con NOTAM activos ahora. |
+| `GET /api/v1/notams/aerodromos` | El registro completo de aeródromos de ANAC (~712), con OACI, clasificación y si tiene NOTAM activo. |
 | `GET /api/v1/metar?aerodromo=EZE` | METAR vigente, crudo y explicado en español. Mismos códigos que arriba. |
 | `GET /api/v1/metar?aerodromo=EZE&decode=false` | Sólo el METAR crudo, sin la explicación. |
 | `GET /api/v1/taf?aerodromo=EZE` | TAF vigente, crudo y explicado en español. |
@@ -277,7 +279,29 @@ php artisan queue:work --tries=3
 
 En producción esto va bajo systemd o supervisor, junto con
 `php artisan schedule:work` para el refresco horario de aeródromos
-(`notams:refresh-airports`) y la ronda de alertas (`metar:watch`).
+(`notams:refresh-airports`), el import semanal del registro
+(`notams:import-madhel`) y la ronda de alertas (`metar:watch`).
+
+### El registro de aeródromos
+
+El selector de NOTAM de ANAC sólo lista los aeródromos que tienen un NOTAM
+activo *en este momento*, y su PIB responde 500 tanto para un aeródromo
+tranquilo como para un código inventado. Por eso no puede decir qué aeródromos
+existen: `ELP` (Club de Planeadores Santa Rosa / El Pampero) es real y durante
+años iba a dar 404.
+
+La fuente de verdad es MADHEL, el registro oficial de ANAC, que se importa
+entero — 712 aeródromos y helipuertos, públicos y privados:
+
+```bash
+php artisan notams:import-madhel              # actualiza la tabla airports
+php artisan notams:import-madhel --seed-file  # además regenera el snapshot commiteado
+```
+
+`database/seeders/data/airports.php` es ese snapshot: está generado, no se
+edita a mano, y existe para que una instalación nueva y los tests tengan el
+registro completo sin depender de la red. `notams:refresh-airports` sigue
+corriendo cada hora, pero ahora sólo anota qué aeródromos tienen NOTAM activo.
 
 ### Alertas: "avisame si cambia"
 
@@ -349,6 +373,41 @@ mutuamente:
 ```sql
 PRAGMA journal_mode=WAL;
 ```
+
+## Panel de administración
+
+En `/admin`, detrás de un login. Dos pantallas: el **log de mensajes entrantes**
+con la respuesta que dio el bot, y las **métricas** de uso.
+
+No hay registro público. Las cuentas se crean por consola, y `is_admin` no es
+asignable en masa justamente para que no haya otro camino:
+
+```bash
+php artisan admin:create vos@ejemplo.com          # pide la contraseña por teclado
+php artisan admin:create vos@ejemplo.com --password=...   # o sin interacción
+```
+
+Volver a correrlo sobre un correo existente lo promueve y le cambia la
+contraseña, así que sirve igual para recuperar el acceso.
+
+Cada mensaje que entra se guarda en `whatsapp_messages` **antes** de encolarse:
+un mensaje que nunca se contestó — cola caída, ANAC inalcanzable, reintentos
+agotados — deja rastro igual, y ésas son las filas que interesan. De cada uno
+queda el teléfono, el nombre de perfil de WhatsApp si lo informó, el texto, el
+tema al que enrutó, el aeródromo que resolvió, las respuestas enviadas y cuánto
+tardó.
+
+Las métricas salen de ahí: consultas por aeródromo (histórico y de la semana),
+mensajes por día, actividad por hora local, temas pedidos, personas distintas —
+nuevas y recurrentes —, latencia (media, mediana, p95), fallos, alertas METAR
+activas por aeródromo, y quiénes escriben más.
+
+La que más sirve para mejorar el bot es **"sin aeródromo identificado"**: los
+mensajes que el matcher no supo resolver, con ejemplos y un filtro propio en el
+log. Ahí aparecen los nombres que la gente usa y el registro no tiene.
+
+El panel es lo único que lee en hora local (`APP_DISPLAY_TIMEZONE`, por defecto
+`America/Argentina/Buenos_Aires`). Todo lo que el bot contesta sigue siendo UTC.
 
 ## Nota operativa: el SMN detrás de Cloudflare
 

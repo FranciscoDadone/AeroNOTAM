@@ -147,7 +147,7 @@ class CreateContentTemplates extends Command
                 'actions' => [
                     ['title' => '🌦️ METAR', 'id' => 'ask:metar:{{2}}'],
                     ['title' => '🔭 TAF', 'id' => 'ask:taf:{{2}}'],
-                    ['title' => '🌅 Crepúsculo', 'id' => 'ask:crepusculo:{{2}}'],
+                    ['title' => '🌅 Salida/Puesta sol', 'id' => 'ask:crepusculo:{{2}}'],
                 ],
             ],
             'TWILIO_CONTENT_SID_MENU_METAR' => [
@@ -157,7 +157,7 @@ class CreateContentTemplates extends Command
                 'actions' => [
                     ['title' => '✈️ NOTAMs', 'id' => 'ask:notam:{{2}}'],
                     ['title' => '🔭 TAF', 'id' => 'ask:taf:{{2}}'],
-                    ['title' => '🌅 Crepúsculo', 'id' => 'ask:crepusculo:{{2}}'],
+                    ['title' => '🌅 Salida/Puesta sol', 'id' => 'ask:crepusculo:{{2}}'],
                 ],
             ],
             'TWILIO_CONTENT_SID_MENU_TAF' => [
@@ -167,7 +167,7 @@ class CreateContentTemplates extends Command
                 'actions' => [
                     ['title' => '✈️ NOTAMs', 'id' => 'ask:notam:{{2}}'],
                     ['title' => '🌦️ METAR', 'id' => 'ask:metar:{{2}}'],
-                    ['title' => '🌅 Crepúsculo', 'id' => 'ask:crepusculo:{{2}}'],
+                    ['title' => '🌅 Salida/Puesta sol', 'id' => 'ask:crepusculo:{{2}}'],
                 ],
             ],
             'TWILIO_CONTENT_SID_MENU_CREPUSCULO' => [

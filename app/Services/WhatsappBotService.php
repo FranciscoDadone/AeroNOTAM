@@ -1069,7 +1069,7 @@ class WhatsappBotService
      */
     protected function sunCitiesMessage(?string $lead = null): string
     {
-        $lead ??= '🌅 El crepúsculo lo publica el Servicio de Hidrografía Naval por ciudad, y no encontré ninguna en tu mensaje.';
+        $lead ??= '🌅 La salida y puesta de sol la publica el Servicio de Hidrografía Naval por ciudad, y no encontré ninguna en tu mensaje.';
 
         return "{$lead}\n\n"
             .'Probá con: _"crepusculo santa rosa"_.'
@@ -1384,7 +1384,7 @@ class WhatsappBotService
             ."\n\n"
             .'También puedo avisarte cuando el clima cambie: _"avisame EZE"_. Con _"mis alertas"_ ves las que tenés activas.'
             ."\n\n"
-            .'Y para saber hasta qué hora hay luz, pedime el crepúsculo: _"crepusculo santa rosa"_ (el SHN lo publica por ciudad).';
+            .'Y para saber hasta qué hora hay luz, pedime la salida y puesta de sol: _"crepusculo santa rosa"_ (el SHN lo publica por ciudad).';
     }
 
     /**

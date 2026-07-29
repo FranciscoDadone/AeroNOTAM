@@ -85,7 +85,8 @@ class WhatsappBotService
      */
     protected const SUN_KEYWORDS = [
         'crepusculo', 'amanece', 'atardece', 'anochece', 'ocaso',
-        'salida del sol', 'puesta del sol', 'sale el sol', 'se pone el sol',
+        'salida del sol', 'salida de sol', 'puesta del sol', 'puesta de sol',
+        'sale el sol', 'se pone el sol', 'salida y puesta', 'puesta y salida',
         'luz diurna', 'primera luz', 'ultima luz',
     ];
 

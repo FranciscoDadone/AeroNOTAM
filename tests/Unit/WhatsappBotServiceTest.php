@@ -937,6 +937,20 @@ it('answers the sun times for an explicit date', function () {
     Carbon::setTestNow();
 });
 
+it('answers the sun times for an aerodrome named by ICAO code, in either word order', function (string $message) {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
+    fakeShnSun();
+
+    expect(bot()->reply($message)->messages[0])
+        ->toContain('SANTA ROSA')
+        ->toContain('Crepúsculo matutino');
+
+    Carbon::setTestNow();
+})->with([
+    'code first' => ['SAZR Salida Y puesta de sol'],
+    'code last' => ['Salida Y puesta de sol sazr'],
+]);
+
 it('routes sun questions ahead of the forecast and the alerts', function (string $message) {
     Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
     fakeShnSun();

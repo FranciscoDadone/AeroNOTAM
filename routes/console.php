@@ -20,3 +20,14 @@ Schedule::command('notams:import-madhel')->weeklyOn(1, '04:00')->withoutOverlapp
 // off-schedule report issued *because* something changed sharply — long after
 // the fact.
 Schedule::command('metar:watch')->everyTenMinutes()->withoutOverlapping();
+
+// PRONAREA is reissued at 03/09/15/21 UTC, one hour to seventy minutes before
+// its own validity window starts (see the SMN's PRONAREA_Pronostico_Area.pdf).
+// Fifteen minutes after each gives the SMN room to have actually published
+// before this asks, and the command's own retry loop — far more patient than
+// a live WhatsApp reply could ever afford to be — absorbs the 502s its page
+// warns happen under load.
+Schedule::command('pronarea:refresh-cache')
+    ->cron('15 3,9,15,21 * * *')
+    ->timezone('UTC')
+    ->withoutOverlapping();

@@ -106,6 +106,28 @@ return [
         'attempts' => env('SMN_METAR_ATTEMPTS', 2),
     ],
 
+    'pronarea' => [
+        // Reissued every six hours, same cadence as the TAF, so the same TTL
+        // order of magnitude serves current data without hammering the SMN.
+        'ttl' => env('PRONAREA_TTL', 1800),
+
+        // How long the last successfully fetched bulletin is kept around to
+        // answer with — marked stale — when the SMN cannot be reached at all.
+        // There is no second source for PRONAREA the way NOAA relays METAR/TAF,
+        // so this is what stands between a sustained Cloudflare block and an
+        // empty reply. A day comfortably outlives one block.
+        'stale_ttl' => env('PRONAREA_STALE_TTL', 86400),
+
+        // How hard pronarea:refresh-cache retries one FIR before moving on,
+        // and how long it waits between tries. Deliberately much higher than
+        // smn.attempts: that one guards a live WhatsApp reply and has to stay
+        // fast, while this runs on the scheduler with nobody waiting on it —
+        // and the SMN's own PRONAREA page warns it 502s under load, which is
+        // exactly what this is meant to outlast.
+        'refresh_attempts' => env('PRONAREA_REFRESH_ATTEMPTS', 20),
+        'refresh_retry_seconds' => env('PRONAREA_REFRESH_RETRY_SECONDS', 30),
+    ],
+
     'noaa' => [
         // Fallback for when the SMN is blocking us. Serves the same
         // SMN-issued reports, relayed over the WMO OPMET exchange.

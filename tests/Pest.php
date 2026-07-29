@@ -112,6 +112,19 @@ function fakeTaf(mixed $smn = null, mixed $noaa = null): void
 }
 
 /**
+ * Stub PRONAREA's query on the same legacy SMN screen METAR/TAF use. Unlike
+ * fakeMetar()/fakeTaf(), there is no second host to fake alongside it: PRONAREA
+ * has no NOAA-relayed equivalent, so a test that wants to exercise the stale
+ * fallback fakes this to fail (e.g. with smnFixture('challenge.html')) instead.
+ */
+function fakePronarea(mixed $response = null): void
+{
+    Http::fake([
+        '*observacion=pronarea*' => $response ?? Http::response(smnFixture('pronarea-eze.html')),
+    ]);
+}
+
+/**
  * HTML captured verbatim from hidro.gov.ar — the SHN's sun table for Santa Rosa,
  * July 2026, the whole month in one page. Same reasoning as the other fixtures:
  * it is what tells us when the SHN rearranges its markup, and the failure mode

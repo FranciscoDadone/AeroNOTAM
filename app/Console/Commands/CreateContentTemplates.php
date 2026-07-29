@@ -13,11 +13,13 @@ use Twilio\Rest\Content\V1\ContentModels;
  *
  * Six of them: subscribe/unsubscribe under a METAR, and one follow-up menu
  * per question topic (NOTAM, METAR, TAF, crepúsculo) offering the other
- * three. There is one menu template per topic rather than a single shared one
- * because a quick-reply template's captions and action ids are fixed when it
- * is registered — the only thing that can vary at send time is the
- * aerodrome, substituted into {{2}} — so a menu that never re-offers the
- * topic it follows needs its own template per topic.
+ * three. PRONAREA has no template of its own: it is not offered as a
+ * quick-reply action, by design (see ReplyButton::MENU_OFFERS). There is one
+ * menu template per topic rather than a single shared one because a
+ * quick-reply template's captions and action ids are fixed when it is
+ * registered — the only thing that can vary at send time is the aerodrome,
+ * substituted into {{2}} — so a menu that never re-offers the topic it
+ * follows needs its own template per topic.
  *
  * Run once per Twilio account, by hand — the templates are account-level
  * resources with no natural key to upsert against, so re-running this creates

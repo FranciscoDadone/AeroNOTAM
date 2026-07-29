@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Ai\Agents\AirportMatcherAgent;
 use App\DataObjects\Metar;
 use App\DataObjects\Notam;
+use App\DataObjects\PronareaForecast;
 use App\DataObjects\ReplyButton;
 use App\DataObjects\ReplyContext;
 use App\DataObjects\ReplyMenu;
@@ -13,6 +14,7 @@ use App\DataObjects\Taf;
 use App\DataObjects\WhatsappReply;
 use App\Models\MetarSubscription;
 use App\Support\AirportResolver;
+use App\Support\PronareaFirResolver;
 use App\Support\SunCityResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -92,6 +94,18 @@ class WhatsappBotService
     ];
 
     /**
+     * Words that ask for PRONAREA, the SMN's area forecast by FIR.
+     *
+     * Checked before TAF_KEYWORDS for the same reason as the sun keywords:
+     * "pronóstico de área" contains "pronostico", which alone reads as a TAF
+     * request, and someone who spelled out the whole phrase means the FIR
+     * bulletin specifically.
+     */
+    protected const PRONAREA_KEYWORDS = [
+        'pronarea', 'pronostico de area', 'pronostico de la fir',
+    ];
+
+    /**
      * How the SHN's month names are spelled in ordinary text, for a question
      * like "crepusculo en salta el 15 de agosto". Accent-stripped, since the
      * message reaching this map already went through Str::ascii().
@@ -164,6 +178,8 @@ class WhatsappBotService
         protected TafEnricher $tafEnricher,
         protected ShnSunService $sun,
         protected SunCityResolver $sunCities,
+        protected SmnPronareaService $pronarea,
+        protected PronareaFirResolver $pronareaFirs,
     ) {
         $this->context = new ReplyContext;
     }
@@ -223,6 +239,7 @@ class WhatsappBotService
         return match ($topic) {
             'taf' => $this->tafReply($indicator, $from),
             'metar' => $this->metarReply($indicator, $from),
+            'pronarea' => $this->pronareaReply($indicator),
             default => $this->notamReply($indicator, $from),
         };
     }
@@ -292,6 +309,11 @@ class WhatsappBotService
      * "notam" wins over the rest when the word is there: someone who typed it
      * knows what they want, and "hay notams para mañana en EZE" must not be
      * answered with a forecast just because it mentions tomorrow.
+     *
+     * PRONAREA is checked right after the sun, and for the same two reasons:
+     * it has nothing to watch either (a FIR's current bulletin is not a
+     * standing condition to subscribe to), and "pronóstico de área" contains
+     * "pronostico", which alone reads as a TAF request.
      */
     protected function topic(string $message): string
     {
@@ -299,6 +321,7 @@ class WhatsappBotService
 
         return match (true) {
             $this->mentions($normalized, self::SUN_KEYWORDS) => 'crepusculo',
+            $this->mentions($normalized, self::PRONAREA_KEYWORDS) => 'pronarea',
             $this->mentions($normalized, self::LIST_KEYWORDS) => 'list',
             $this->mentions($normalized, self::UNSUBSCRIBE_KEYWORDS) => 'unsubscribe',
             $this->mentions($normalized, self::SUBSCRIBE_KEYWORDS) => 'subscribe',
@@ -742,6 +765,66 @@ class WhatsappBotService
                 $parts[] = $part;
             }
         }
+
+        return WhatsappReply::ofMany($this->withHeader($header, $parts));
+    }
+
+    /**
+     * PRONAREA is published per FIR, not per aerodrome, so the aerodrome the
+     * message resolved to is only used to look up which FIR speaks for it.
+     *
+     * No follow-up menu, unlike NOTAM/METAR/TAF/crepúsculo: PRONAREA is not
+     * offered as a quick-reply action, by design — see helpMessage() for the
+     * only place it is surfaced.
+     */
+    protected function pronareaReply(string $indicator): WhatsappReply
+    {
+        $fir = $this->pronareaFirs->firFor($indicator);
+
+        if ($fir === null) {
+            $name = $this->airports->nameFor($indicator) ?? $indicator;
+
+            return WhatsappReply::of("*{$name}* ({$indicator}) no está entre los aeródromos para los que el SMN publica PRONAREA.");
+        }
+
+        try {
+            $forecast = $this->pronarea->forFir($fir);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return WhatsappReply::of('No pude consultar el PRONAREA del SMN en este momento. Probá de nuevo en unos minutos.');
+        }
+
+        return $this->formatPronarea($forecast);
+    }
+
+    /**
+     * The bulletin verbatim — same reasoning as the TAF reply: it is the form
+     * a pilot can cross-check against any other source. When the SMN could
+     * not be reached and this is the last bulletin fetched successfully
+     * rather than the current one, that is said up front rather than left for
+     * the reader to notice on their own.
+     */
+    protected function formatPronarea(PronareaForecast $forecast): WhatsappReply
+    {
+        $header = "🗺️ *PRONAREA FIR {$forecast->fir}*";
+        $budget = self::MAX_MESSAGE_LENGTH - mb_strlen($header) - 12;
+
+        $lines = [];
+
+        if ($forecast->stale) {
+            $lines[] = sprintf(
+                '⚠️ No pude confirmar si sigue vigente: es la última versión que obtuve, de las %s UTC.',
+                $forecast->fetchedAt->format('H:i'),
+            );
+            $lines[] = '';
+        }
+
+        $lines[] = '```'.$forecast->raw.'```';
+        $lines[] = '';
+        $lines[] = $this->sourceCredit(false);
+
+        $parts = $this->splitToFit(implode("\n", $lines), $budget);
 
         return WhatsappReply::ofMany($this->withHeader($header, $parts));
     }
@@ -1296,6 +1379,8 @@ class WhatsappBotService
             .'Si querés el estado del tiempo, pedime el METAR: _"metar EZE"_ o _"cómo está el clima en Bariloche?"_.'
             ."\n\n"
             .'Y si lo que te interesa es cómo va a estar, pedime el TAF: _"taf EZE"_ o _"pronóstico de Aeroparque"_.'
+            ."\n\n"
+            .'Para el pronóstico de área de toda la FIR, pedime el PRONAREA: _"pronarea EZE"_.'
             ."\n\n"
             .'También puedo avisarte cuando el clima cambie: _"avisame EZE"_. Con _"mis alertas"_ ves las que tenés activas.'
             ."\n\n"

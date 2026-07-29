@@ -457,6 +457,108 @@ it('keeps every taf message within the twilio limit', function () {
 
 /*
 |--------------------------------------------------------------------------
+| PRONAREA
+|--------------------------------------------------------------------------
+|
+| Unlike NOTAM/METAR/TAF, which answer about the aerodrome named, PRONAREA
+| answers about the FIR that aerodrome sits in — the aerodrome is only ever
+| used to look up which FIR.
+|
+*/
+
+it('answers with the pronarea for the fir an aerodrome sits in', function () {
+    fakeAnac();
+    fakePronarea();
+
+    $reply = bot()->reply('pronarea EZE')->messages;
+
+    expect($reply[0])
+        ->toContain('PRONAREA FIR EZE')
+        ->toContain('SIGFENOM: CIRCULACION DE AIRE HUMEDO')
+        ->toContain('Fuente: Servicio Meteorológico Nacional');
+});
+
+/**
+ * "pronóstico de área" contains "pronostico", which alone reads as a TAF
+ * request — PRONAREA_KEYWORDS has to be checked before TAF_KEYWORDS for this
+ * not to be misrouted, the same reasoning as the sun keywords.
+ */
+it('routes the spelled-out phrase to pronarea instead of the forecast', function () {
+    fakeAnac();
+    fakeTaf();
+    fakePronarea();
+
+    expect(bot()->reply('pronostico de area para SIS')->messages[0])
+        ->toContain('PRONAREA FIR SIS')
+        ->not->toContain('TAF SAEZ');
+});
+
+it('says so when the aerodrome is not one the SMN covers with pronarea', function () {
+    fakeAnac();
+
+    expect(bot()->reply('pronarea alta gracia')->messages[0])
+        ->toContain('no está entre los aeródromos')
+        ->toContain('PRONAREA');
+
+    Http::assertNothingSent();
+});
+
+it('reports a service problem when the smn cannot be reached and nothing was cached', function () {
+    fakeAnac();
+    fakePronarea(Http::response('down', 503));
+
+    expect(bot()->reply('pronarea EZE')->messages[0])->toContain('No pude consultar el PRONAREA');
+});
+
+it('warns when serving a stale bulletin instead of failing outright', function () {
+    fakeAnac();
+
+    // A sequence rather than two fakePronarea() calls: Http::fake() merges
+    // stubs and the first match wins, so a later fake cannot override an
+    // earlier one.
+    Http::fake([
+        '*observacion=pronarea*' => Http::sequence()
+            ->push(smnFixture('pronarea-eze.html'))
+            ->push(smnFixture('challenge.html'), 403)
+            ->push(smnFixture('challenge.html'), 403),
+    ]);
+
+    bot()->reply('pronarea EZE');
+
+    Cache::forget('pronarea:EZE');
+
+    expect(bot()->reply('pronarea EZE')->messages[0])
+        ->toContain('No pude confirmar si sigue vigente')
+        ->toContain('PRONAREA FIR EZE VALIDEZ 1604');
+});
+
+/**
+ * PRONAREA is not offered as a quick-reply action, by design — it only ever
+ * answers a typed question, unlike NOTAM/METAR/TAF/crepúsculo which all also
+ * offer each other after answering.
+ */
+it('never offers a follow-up menu for a pronarea answer', function () {
+    fakeAnac();
+    fakePronarea();
+    withButtonTemplates();
+
+    expect(bot()->reply('pronarea EZE', PHONE)->menu)->toBeNull();
+});
+
+/**
+ * There is no "ask:pronarea:..." button anywhere for WhatsApp to echo back,
+ * but the payload grammar is user-reachable regardless of provenance — a
+ * stale client, a crafted webhook — and must degrade the same way any other
+ * unrecognised payload does: back to the ordinary text path.
+ */
+it('falls back to the text path for a pronarea menu payload, since none is ever sent', function () {
+    fakeAnac();
+
+    expect(bot()->reply('aeroparque', PHONE, 'ask:pronarea:SAEZ')->messages[0])->toContain('(AER)');
+});
+
+/*
+|--------------------------------------------------------------------------
 | Alertas
 |--------------------------------------------------------------------------
 |

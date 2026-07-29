@@ -78,9 +78,14 @@ final readonly class ReplyButton
 
     /**
      * The topics each menu offers, in a fixed order — NOTAM, METAR, TAF,
-     * crepúsculo, minus the one just answered. Only the written fallback reads
-     * this; the captions themselves live in whatsapp:content-templates, because
-     * they are baked into the template and cannot be changed from here.
+     * crepúsculo, minus the one just answered. Only the written fallback
+     * reads this; the captions themselves live in whatsapp:content-templates,
+     * because they are baked into the template and cannot be changed from
+     * here.
+     *
+     * PRONAREA is deliberately not in here: it is not offered as a
+     * quick-reply action, by design, so it never appears as an offer and has
+     * no menu of its own.
      *
      * @var array<string, array<int, string>>
      */

@@ -101,3 +101,15 @@ it('leaves the button payload null for a typed message', function () {
         return (new ReflectionProperty($job, 'buttonPayload'))->getValue($job) === null;
     });
 });
+
+it('passes a tapped menu payload through to the job', function () {
+    postSigned([
+        'From' => 'whatsapp:+5491111111111',
+        'Body' => '🔭 TAF',
+        'ButtonPayload' => 'ask:taf:SAEZ',
+    ])->assertOk();
+
+    Queue::assertPushed(function (ProcessWhatsappMessage $job) {
+        return (new ReflectionProperty($job, 'buttonPayload'))->getValue($job) === 'ask:taf:SAEZ';
+    });
+});

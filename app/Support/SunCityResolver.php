@@ -149,7 +149,20 @@ class SunCityResolver
     {
         $code = $this->airports->matchFromText($message);
 
-        return $code === null ? null : (self::AERODROME_CITIES[$code] ?? null);
+        return $code === null ? null : $this->cityFor($code);
+    }
+
+    /**
+     * The SHN locality an aerodrome answers for, by ANAC code — null when the
+     * aerodrome serves none.
+     *
+     * Public because a tapped button carries a code and nothing else: there is
+     * no sentence left to match against, and asking matchFromText() to re-derive
+     * one would be inventing text the user never wrote.
+     */
+    public function cityFor(string $anacCode): ?string
+    {
+        return self::AERODROME_CITIES[$anacCode] ?? null;
     }
 
     protected function normalize(string $text): string

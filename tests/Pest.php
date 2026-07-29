@@ -253,3 +253,20 @@ function withoutAi(): void
 {
     config(['ai.providers.openrouter.key' => null]);
 }
+
+/**
+ * Register a SID for every button template. Blank is the default everywhere
+ * else on purpose — that is what a fresh Twilio account looks like, and the
+ * bot has to answer without them.
+ */
+function withButtonTemplates(): void
+{
+    config([
+        'services.twilio.content_sid_metar' => 'HXsub',
+        'services.twilio.content_sid_alert' => 'HXalert',
+        'services.twilio.content_sid_menu_notam' => 'HXmenunotam',
+        'services.twilio.content_sid_menu_metar' => 'HXmenumetar',
+        'services.twilio.content_sid_menu_taf' => 'HXmenutaf',
+        'services.twilio.content_sid_menu_crepusculo' => 'HXmenusol',
+    ]);
+}

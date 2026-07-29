@@ -143,6 +143,19 @@ return [
         // an interface that works without it.
         'content_sid_metar' => env('TWILIO_CONTENT_SID_METAR'),
         'content_sid_alert' => env('TWILIO_CONTENT_SID_ALERT'),
+
+        // One menu template per topic, offering the other three for the same
+        // aerodrome. There are four rather than one because a quick-reply
+        // template's captions are fixed when it is registered: the only thing
+        // that can vary at send time is the aerodrome, which rides in {{2}}.
+        // Left blank, the menu is not sent at all — unlike the two above it has
+        // no message to ride on, and an extra message repeating three commands
+        // the help text already lists would be noise rather than graceful
+        // degradation.
+        'content_sid_menu_notam' => env('TWILIO_CONTENT_SID_MENU_NOTAM'),
+        'content_sid_menu_metar' => env('TWILIO_CONTENT_SID_MENU_METAR'),
+        'content_sid_menu_taf' => env('TWILIO_CONTENT_SID_MENU_TAF'),
+        'content_sid_menu_crepusculo' => env('TWILIO_CONTENT_SID_MENU_CREPUSCULO'),
     ],
 
 ];

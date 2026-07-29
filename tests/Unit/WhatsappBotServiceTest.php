@@ -1001,3 +1001,229 @@ it('still answers NOTAMs for a city that also has sun data', function () {
 
     expect(bot()->reply('notams santa rosa')->messages[0])->toContain('(OSA)');
 });
+
+/*
+|--------------------------------------------------------------------------
+| El menú de seguimiento
+|--------------------------------------------------------------------------
+|
+| After answering about an aerodrome, the bot offers the other three topics
+| as a second, short message with its own button — never merged onto the
+| answer itself (the METAR already spends its own button on the watch
+| offer), and never sent at all without a registered template for it.
+|
+*/
+
+it('offers the other topics after answering about an aerodrome', function (string $message, string $sid) {
+    fakeAnac();
+    fakeMetar();
+    fakeTaf();
+    withButtonTemplates();
+
+    $reply = bot()->reply($message, PHONE);
+
+    expect($reply->menu)->not->toBeNull()
+        ->and($reply->menu->button->contentSid)->toBe($sid)
+        ->and($reply->menu->button->payloadValue)->toBe('SAEZ')
+        ->and($reply->menu->body)->toContain('EZEIZA');
+})->with([
+    'notam' => ['notams EZE', 'HXmenunotam'],
+    'metar' => ['metar EZE', 'HXmenumetar'],
+    'taf' => ['taf EZE', 'HXmenutaf'],
+]);
+
+it('offers both the watch and the menu under an observation', function () {
+    fakeMetar();
+    withButtonTemplates();
+
+    $reply = bot()->reply('metar EZE', PHONE);
+
+    expect($reply->button?->contentSid)->toBe('HXsub')
+        ->and($reply->menu?->button->contentSid)->toBe('HXmenumetar');
+});
+
+it('does not offer a menu when no template is registered', function () {
+    fakeAnac();
+
+    expect(bot()->reply('notams EZE', PHONE)->menu)->toBeNull();
+});
+
+it('does not offer a menu off-channel', function () {
+    fakeAnac();
+    withButtonTemplates();
+
+    expect(bot()->reply('notams EZE')->menu)->toBeNull();
+});
+
+it('does not offer a menu with a subscription, a listing or an alert', function () {
+    fakeMetar();
+    withButtonTemplates();
+
+    expect(bot()->reply('avisame EZE', PHONE)->menu)->toBeNull()
+        ->and(bot()->reply('', PHONE, 'sub:SAEZ:12')->menu)->toBeNull()
+        ->and(bot()->reply('mis alertas', PHONE)->menu)->toBeNull()
+        ->and(bot()->reply('baja EZE', PHONE)->menu)->toBeNull();
+
+    config(['services.twilio.content_sid_alert' => 'HXalert']);
+
+    $alert = bot()->changeAlert(
+        'EZE',
+        new Metar(station: 'SAEZ', airportName: 'EZEIZA', observedAt: '27 - 14:00', raw: 'METAR SAEZ 271400Z 18008KT 9999 SCT020 22/14 Q1013'),
+        ['Categoría de vuelo: VFR → IFR.'],
+        '28/02 02:00 UTC',
+    );
+
+    expect($alert->menu)->toBeNull();
+});
+
+it('does not offer a menu when it could not answer', function () {
+    withButtonTemplates();
+
+    fakeAnac(Http::response('down', 503));
+    expect(bot()->reply('notams EZE', PHONE)->menu)->toBeNull();
+
+    fakeMetar(Http::response('Server Error', 500), Http::response('Server Error', 500));
+    expect(bot()->reply('metar EZE', PHONE)->menu)->toBeNull();
+
+    fakeTaf(Http::response('Server Error', 500), Http::response('Server Error', 500));
+    expect(bot()->reply('taf EZE', PHONE)->menu)->toBeNull();
+
+    fakeShnSun(Http::response('Server Error', 500));
+    expect(bot()->reply('crepusculo santa rosa', PHONE)->menu)->toBeNull();
+
+    expect(bot()->reply('metar alta gracia', PHONE)->menu)->toBeNull();
+});
+
+it('does not offer a menu with the help text or a disambiguation', function () {
+    fakeAnac();
+    withButtonTemplates();
+
+    foreach (['TWA', 'TWB'] as $code) {
+        Airport::create(['anac_code' => $code, 'name' => 'VILLA ZURUMBAMBA', 'access' => 'publico']);
+    }
+
+    expect(bot()->reply('cual es la capital de francia', PHONE)->menu)->toBeNull()
+        ->and(bot()->reply('zurumbamba', PHONE)->menu)->toBeNull();
+});
+
+it('answers a tapped menu button without any keyword matching', function (string $payload, string $expected) {
+    fakeAnac();
+    fakeMetar();
+    fakeTaf();
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
+    fakeShnSun();
+
+    // The caption is passed as the message, to prove it is never parsed —
+    // only the payload drives the answer.
+    expect(implode(' ', bot()->reply('🔭 TAF', PHONE, $payload)->messages))->toContain($expected);
+
+    Carbon::setTestNow();
+})->with([
+    'notam' => ['ask:notam:SAEZ', 'Fuente: ANAC'],
+    'metar' => ['ask:metar:SAEZ', 'METAR SAEZ'],
+    'taf' => ['ask:taf:SAEZ', 'TAF SAEZ'],
+    'crepusculo' => ['ask:crepusculo:SAZR', 'SANTA ROSA'],
+]);
+
+it('keeps offering the other topics after a tapped one', function () {
+    fakeAnac();
+    withButtonTemplates();
+
+    $reply = bot()->reply('✈️ NOTAMs', PHONE, 'ask:notam:SAEZ');
+
+    expect($reply->menu?->button->contentSid)->toBe('HXmenunotam');
+});
+
+it('offers the watch again under a metar reached by tapping', function () {
+    fakeMetar();
+    withButtonTemplates();
+
+    $reply = bot()->reply('🌦️ METAR', PHONE, 'ask:metar:SAEZ');
+
+    expect($reply->button?->contentSid)->toBe('HXsub')
+        ->and($reply->menu?->button->contentSid)->toBe('HXmenumetar');
+});
+
+it('carries an aerodrome without an icao code in the menu payload', function () {
+    fakeAnac();
+    withButtonTemplates();
+
+    expect(bot()->reply('notams alta gracia', PHONE)->menu?->button->payloadValue)->toBe('AGR');
+});
+
+it('answers honestly when a tapped topic has nothing for that aerodrome', function () {
+    Http::fake();
+
+    expect(bot()->reply('🌦️ METAR', PHONE, 'ask:metar:AGR')->messages[0])->toContain('no tiene código OACI');
+
+    Http::assertNothingSent();
+});
+
+it('names the cities it has when a tapped aerodrome has no sun table', function () {
+    Http::fake();
+
+    $reply = bot()->reply('🌅 Crepúsculo', PHONE, 'ask:crepusculo:AGR')->messages;
+
+    expect(implode(' ', $reply))
+        ->toContain('Ciudades disponibles')
+        ->toContain('SANTA ROSA');
+
+    Http::assertNothingSent();
+});
+
+it('falls back to the text path when a menu payload names an unknown topic', function () {
+    fakeAnac();
+
+    expect(bot()->reply('aeroparque', PHONE, 'ask:humedad:SAEZ')->messages[0])->toContain('(AER)');
+});
+
+it('does not shrink the answer to fit the menu', function () {
+    fakeTaf(Http::response(smnFixture('taf-multi.html')));
+
+    $withoutTemplate = bot()->reply('taf aeroparque', PHONE)->messages;
+
+    withButtonTemplates();
+    $withTemplate = bot()->reply('taf aeroparque', PHONE)->messages;
+
+    expect($withTemplate)->toBe($withoutTemplate);
+
+    foreach ($withTemplate as $message) {
+        expect(mb_strlen($message))->toBeLessThanOrEqual(1500);
+    }
+});
+
+it('offers the menu for a sun answer that names an aerodrome', function (string $message) {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
+    fakeShnSun();
+    withButtonTemplates();
+
+    $reply = bot()->reply($message, PHONE);
+
+    expect($reply->menu)->not->toBeNull()
+        ->and($reply->menu->button->contentSid)->toBe('HXmenusol')
+        ->and($reply->menu->button->payloadValue)->toBe('SAZR');
+
+    Carbon::setTestNow();
+})->with([
+    'by code' => ['crepusculo SAZR'],
+    'by city name' => ['crepusculo santa rosa'],
+]);
+
+/**
+ * "crepusculo base esperanza" resolves the Antarctic locality by alias while
+ * the aerodrome matcher lands on the Esperanza in Santa Fe — offering that
+ * one's NOTAMs under an Antarctic sunset would be wrong by 3.500 km, so no
+ * menu is offered even though the sun answer itself is correct.
+ */
+it('offers no menu when the aerodrome named does not serve the city answered', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
+    fakeShnSun();
+    withButtonTemplates();
+
+    $reply = bot()->reply('crepusculo base esperanza', PHONE);
+
+    expect($reply->menu)->toBeNull()
+        ->and($reply->messages[0])->toContain('ESPERANZA');
+
+    Carbon::setTestNow();
+});

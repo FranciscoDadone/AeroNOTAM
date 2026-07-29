@@ -22,7 +22,7 @@ class WhatsappTestController extends Controller
     protected const TEST_PHONE = 'whatsapp:+000000000000';
 
     /**
-     * GET /api/whatsapp/test?mensaje=hay+notams+en+ezeiza[&boton=sub:SAEZ:12]
+     * GET /api/whatsapp/test?mensaje=hay+notams+en+ezeiza[&boton=sub:SAEZ:12|ask:taf:SAEZ]
      *
      * Runs a message through the exact same pipeline the WhatsApp webhook
      * uses (airport matching + AI decoding + reply formatting) and returns
@@ -56,6 +56,13 @@ class WhatsappTestController extends Controller
             // Null when the reply carries no offer; otherwise the aerodrome the
             // button would act on, so the JSON shows what a tap would do.
             'boton_ofrecido' => $respuesta->button?->payloadValue,
+            // Null when no follow-up menu is offered; otherwise the message
+            // that would go out after the answer and the aerodrome its
+            // buttons act on.
+            'menu_ofrecido' => $respuesta->menu === null ? null : [
+                'mensaje' => $respuesta->menu->body,
+                'aerodromo' => $respuesta->menu->button->payloadValue,
+            ],
         ]);
     }
 }

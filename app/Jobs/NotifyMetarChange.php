@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\Contracts\WhatsappSender;
 use App\DataObjects\Metar;
-use App\DataObjects\WhatsappReply;
+use App\Jobs\Concerns\DeliversWhatsappReply;
 use App\Services\WhatsappBotService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -20,7 +20,7 @@ use Throwable;
  */
 class NotifyMetarChange implements ShouldQueue
 {
-    use Queueable;
+    use DeliversWhatsappReply, Queueable;
 
     public int $timeout = 60;
 
@@ -54,33 +54,7 @@ class NotifyMetarChange implements ShouldQueue
             $this->expiryLabel,
         );
 
-        $this->deliver($sender, $reply);
-    }
-
-    /**
-     * The unsubscribe button goes on the last message only. Everything about
-     * this alert is unsolicited by definition, so the way out of it travels
-     * with it rather than being something the reader has to remember how to ask
-     * for.
-     */
-    protected function deliver(WhatsappSender $sender, WhatsappReply $reply): void
-    {
-        $last = count($reply->messages) - 1;
-
-        foreach ($reply->messages as $i => $message) {
-            if ($i === $last && $reply->button !== null) {
-                $sender->sendWithButtons(
-                    $this->phone,
-                    $reply->button->contentSid,
-                    $reply->button->variables($message),
-                    $message."\n\n".$reply->button->fallbackHint,
-                );
-
-                continue;
-            }
-
-            $sender->send($this->phone, $message);
-        }
+        $this->deliver($sender, $this->phone, $reply);
     }
 
     public function failed(?Throwable $e): void

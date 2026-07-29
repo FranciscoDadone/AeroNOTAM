@@ -7,6 +7,7 @@ use App\DataObjects\Metar;
 use App\DataObjects\Notam;
 use App\DataObjects\ReplyButton;
 use App\DataObjects\ReplyContext;
+use App\DataObjects\ReplyMenu;
 use App\DataObjects\SunTimes;
 use App\DataObjects\Taf;
 use App\DataObjects\WhatsappReply;
@@ -140,6 +141,14 @@ class WhatsappBotService
     protected const BUTTON_UNSUBSCRIBE = '/^unsub:([A-Z]{4})$/';
 
     /**
+     * A tap on the follow-up menu: the same four questions reply() itself can
+     * answer, with the guessing removed. {3,4} because not every ANAC
+     * aerodrome has an ICAO code (Alta Gracia, AGR) and its NOTAM still answer
+     * fine without one.
+     */
+    protected const BUTTON_ASK = '/^ask:(notam|metar|taf|crepusculo):([A-Z]{3,4})$/';
+
+    /**
      * What the last call to reply() made of the message. Kept aside instead of
      * being returned with the reply because only the message log cares.
      */
@@ -189,7 +198,7 @@ class WhatsappBotService
         // Resolves a city and not an aerodrome, so it never reaches the
         // indicator matching below.
         if ($topic === 'crepusculo') {
-            return $this->sunReply($message);
+            return $this->sunReply($message, $from);
         }
 
         if (in_array($topic, ['list', 'subscribe', 'unsubscribe'], true)) {
@@ -212,9 +221,9 @@ class WhatsappBotService
         }
 
         return match ($topic) {
-            'taf' => $this->tafReply($indicator),
+            'taf' => $this->tafReply($indicator, $from),
             'metar' => $this->metarReply($indicator, $from),
-            default => $this->notamReply($indicator),
+            default => $this->notamReply($indicator, $from),
         };
     }
 
@@ -249,6 +258,18 @@ class WhatsappBotService
             $this->context->topic = 'unsubscribe';
 
             return $this->unsubscribe($this->context->anacCode = $this->airports->resolve($m[1]), $from);
+        }
+
+        if (preg_match(self::BUTTON_ASK, $payload, $m) === 1) {
+            $topic = $this->context->topic = $m[1];
+            $indicator = $this->context->anacCode = $this->airports->resolve($m[2]);
+
+            return match ($topic) {
+                'metar' => $this->metarReply($indicator, $from),
+                'taf' => $this->tafReply($indicator, $from),
+                'crepusculo' => $this->sunReplyFor($indicator, $from),
+                default => $this->notamReply($indicator, $from),
+            };
         }
 
         return null;
@@ -538,7 +559,7 @@ class WhatsappBotService
         return (int) config('services.metar.watch.max_per_phone');
     }
 
-    protected function notamReply(string $indicator): WhatsappReply
+    protected function notamReply(string $indicator, ?string $from): WhatsappReply
     {
         try {
             $notams = $this->anac->getNotams($indicator);
@@ -553,7 +574,7 @@ class WhatsappBotService
             $indicator,
             $this->enricher->enrich($notams),
             $this->airports->isClosed($indicator),
-        );
+        )->withMenu($this->menuFor('notam', $indicator, $from));
     }
 
     protected function metarReply(string $indicator, ?string $from): WhatsappReply
@@ -581,7 +602,7 @@ class WhatsappBotService
             $icao,
             $this->metarEnricher->enrich($metars),
             $this->watchOffer($indicator, $icao, $from, $metars !== []),
-        );
+        )->withMenu($this->menuFor('metar', $indicator, $from));
     }
 
     /**
@@ -612,7 +633,42 @@ class WhatsappBotService
             : [null, "🔔 _Ya te estoy avisando de los cambios acá, hasta el {$existing->expiryLabel()}._"];
     }
 
-    protected function tafReply(string $indicator): WhatsappReply
+    /**
+     * The follow-up offering the other three topics for the aerodrome just
+     * answered about.
+     *
+     * Null off-channel, where there is nobody to send a second message to;
+     * null for a place whose code will not fit the button payload (ANAC's
+     * FIR-wide bulletins carry no indicator at all); and — unlike every other
+     * button — null when no template is registered, because this offer has no
+     * message of its own to ride on. Degrading it the way sub:/unsub: do would
+     * mean an extra message per answer whose whole content is three commands
+     * helpMessage() already teaches, so it is skipped rather than sent as text.
+     */
+    protected function menuFor(string $topic, ?string $indicator, ?string $from): ?ReplyMenu
+    {
+        if ($indicator === null || $from === null) {
+            return null;
+        }
+
+        $code = $this->airports->icaoFor($indicator) ?? $indicator;
+
+        if (preg_match('/^[A-Z]{3,4}$/', $code) !== 1) {
+            return null;
+        }
+
+        $button = ReplyButton::menu($topic, $code);
+
+        if (! $button->isAvailable()) {
+            return null;
+        }
+
+        $name = $this->airports->nameFor($indicator) ?? $indicator;
+
+        return new ReplyMenu("¿Querés algo más de *{$name}*?", $button);
+    }
+
+    protected function tafReply(string $indicator, ?string $from): WhatsappReply
     {
         $name = $this->airports->nameFor($indicator) ?? $indicator;
         $icao = $this->airports->icaoFor($indicator);
@@ -629,7 +685,8 @@ class WhatsappBotService
             return WhatsappReply::of('Encontré el aeropuerto pero no pude obtener su pronóstico TAF en este momento. Probá de nuevo en unos minutos.');
         }
 
-        return $this->formatTafs($name, $icao, $this->tafEnricher->enrich($tafs));
+        return $this->formatTafs($name, $icao, $this->tafEnricher->enrich($tafs))
+            ->withMenu($this->menuFor('taf', $indicator, $from));
     }
 
     /**
@@ -697,7 +754,7 @@ class WhatsappBotService
      * typing is the day on their own calendar — same reasoning applies to
      * resolving "mañana" or an explicit date.
      */
-    protected function sunReply(string $message): WhatsappReply
+    protected function sunReply(string $message, ?string $from): WhatsappReply
     {
         $city = $this->sunCities->matchFromText($message);
 
@@ -705,22 +762,89 @@ class WhatsappBotService
             return WhatsappReply::of($this->sunCitiesMessage());
         }
 
-        $today = CarbonImmutable::now(ShnSunService::OFFSET)->startOfDay();
+        $today = $this->sunToday();
         $date = $this->resolveSunDate($message, $today);
 
         try {
-            $times = $this->sun->forDate($city, $date);
+            $reply = $this->sunTimesReply($city, $date, $today);
         } catch (\Throwable $e) {
             report($e);
 
             return WhatsappReply::of('No pude consultar la tabla del sol del Servicio de Hidrografía Naval en este momento. Probá de nuevo en unos minutos.');
         }
 
+        $indicator = $this->context->anacCode = $this->sunAerodrome($message, $city);
+
+        return $reply->withMenu($this->menuFor('crepusculo', $indicator, $from));
+    }
+
+    /**
+     * The sun over an aerodrome, from a tapped button. Always today: a tap
+     * carries no date, and there is nowhere in it to type one.
+     */
+    protected function sunReplyFor(string $indicator, string $from): WhatsappReply
+    {
+        $city = $this->sunCities->cityFor($indicator);
+
+        if ($city === null) {
+            $name = $this->airports->nameFor($indicator) ?? $indicator;
+
+            return WhatsappReply::of($this->sunCitiesMessage(
+                "🌅 No tengo tabla del sol para *{$name}* ({$indicator}): el Servicio de Hidrografía Naval la publica por ciudad, y esa no está en su lista."
+            ));
+        }
+
+        $today = $this->sunToday();
+
+        try {
+            $reply = $this->sunTimesReply($city, $today, $today);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return WhatsappReply::of('No pude consultar la tabla del sol del Servicio de Hidrografía Naval en este momento. Probá de nuevo en unos minutos.');
+        }
+
+        return $reply->withMenu($this->menuFor('crepusculo', $indicator, $from));
+    }
+
+    /**
+     * The sun over a city on one date, formatted — or a plain answer when the
+     * SHN simply has no row for it. Shared by the text path and a tapped
+     * button, which never have anything left to try beyond this call.
+     */
+    protected function sunTimesReply(string $city, CarbonImmutable $date, CarbonImmutable $today): WhatsappReply
+    {
+        $times = $this->sun->forDate($city, $date);
+
         if ($times === null) {
             return WhatsappReply::of("El SHN no publica datos del sol para *{$city}* en esta fecha.");
         }
 
         return $this->formatSunTimes($times, $this->sunDateLabel($date, $today));
+    }
+
+    protected function sunToday(): CarbonImmutable
+    {
+        return CarbonImmutable::now(ShnSunService::OFFSET)->startOfDay();
+    }
+
+    /**
+     * The aerodrome a sun question named, when it named one at all.
+     *
+     * "crepusculo SAZR" carries an aerodrome; "crepusculo santa rosa" happens
+     * to as well, because Santa Rosa has one. A city with several — Buenos
+     * Aires has five — or none the resolver is confident about leaves nothing
+     * to offer NOTAMs for, and the answer simply goes out without a menu. The
+     * city has to match too: "crepusculo base esperanza" resolves the
+     * Antarctic locality by alias while the aerodrome matcher lands on the
+     * Esperanza in Santa Fe, and offering that one's NOTAMs under an Antarctic
+     * sunset would be wrong by 3.500 km.
+     */
+    protected function sunAerodrome(string $message, string $city): ?string
+    {
+        $code = $this->airports->matchFromText($message);
+
+        return $code !== null && $this->sunCities->cityFor($code) === $city ? $code : null;
     }
 
     /**
@@ -860,9 +984,11 @@ class WhatsappBotService
      * answer for a place that is not on its list — naming the ones that are is
      * the whole answer.
      */
-    protected function sunCitiesMessage(): string
+    protected function sunCitiesMessage(?string $lead = null): string
     {
-        return "🌅 El crepúsculo lo publica el Servicio de Hidrografía Naval por ciudad, y no encontré ninguna en tu mensaje.\n\n"
+        $lead ??= '🌅 El crepúsculo lo publica el Servicio de Hidrografía Naval por ciudad, y no encontré ninguna en tu mensaje.';
+
+        return "{$lead}\n\n"
             .'Probá con: _"crepusculo santa rosa"_.'
             ."\n\n"
             .'*Ciudades disponibles:* '.implode(', ', $this->sunCities->cities()).'.';

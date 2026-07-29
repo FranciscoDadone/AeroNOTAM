@@ -8,8 +8,16 @@ use Twilio\Rest\Client;
 use Twilio\Rest\Content\V1\ContentModels;
 
 /**
- * Registers the two content templates that let a WhatsApp message carry a
- * button, and prints their SIDs.
+ * Registers the content templates that let a WhatsApp message carry buttons,
+ * and prints their SIDs.
+ *
+ * Six of them: subscribe/unsubscribe under a METAR, and one follow-up menu
+ * per question topic (NOTAM, METAR, TAF, crepúsculo) offering the other
+ * three. There is one menu template per topic rather than a single shared one
+ * because a quick-reply template's captions and action ids are fixed when it
+ * is registered — the only thing that can vary at send time is the
+ * aerodrome, substituted into {{2}} — so a menu that never re-offers the
+ * topic it follows needs its own template per topic.
  *
  * Run once per Twilio account, by hand — the templates are account-level
  * resources with no natural key to upsert against, so re-running this creates
@@ -28,7 +36,7 @@ class CreateContentTemplates extends Command
 {
     protected $signature = 'whatsapp:content-templates';
 
-    protected $description = 'Create the Twilio content templates that carry the subscribe/unsubscribe buttons.';
+    protected $description = 'Create the Twilio content templates that carry the bot\'s buttons and follow-up menus.';
 
     public function handle(): int
     {
@@ -43,27 +51,18 @@ class CreateContentTemplates extends Command
 
         $client = new Client($sid, $token);
 
-        $templates = [
-            'TWILIO_CONTENT_SID_METAR' => [
-                'friendly_name' => 'notams_metar_suscribir',
-                'title' => '🔔 Avisarme 12 h',
-                // The aerodrome the button acts on is substituted here at send
-                // time and comes back to us verbatim as ButtonPayload, so the
-                // tap needs no guessing about what the user meant.
-                'id' => 'sub:{{2}}:12',
-                'sample' => 'SAEZ',
-            ],
-            'TWILIO_CONTENT_SID_ALERT' => [
-                'friendly_name' => 'notams_metar_baja',
-                'title' => '🔕 Dar de baja',
-                'id' => 'unsub:{{2}}',
-                'sample' => 'SAEZ',
-            ],
-        ];
-
         $created = [];
 
-        foreach ($templates as $envKey => $template) {
+        foreach ($this->templates() as $envKey => $template) {
+            $actions = array_map(
+                fn (array $action) => ContentModels::createQuickReplyAction([
+                    'type' => 'QUICK_REPLY',
+                    'title' => $action['title'],
+                    'id' => $action['id'],
+                ]),
+                $template['actions'],
+            );
+
             try {
                 // The model classes all live inside ContentModels.php, which
                 // PSR-4 will only autoload under that one name — hence the
@@ -72,17 +71,11 @@ class CreateContentTemplates extends Command
                     ContentModels::createContentCreateRequest([
                         'friendly_name' => $template['friendly_name'],
                         'language' => 'es',
-                        'variables' => ['1' => 'METAR SAEZ 271400Z 18008KT 9999 SCT020 22/14 Q1013', '2' => $template['sample']],
+                        'variables' => ['1' => $template['body_sample'], '2' => $template['sample']],
                         'types' => ContentModels::createTypes([
                             'twilio/quick-reply' => ContentModels::createTwilioQuickReply([
                                 'body' => '{{1}}',
-                                'actions' => [
-                                    ContentModels::createQuickReplyAction([
-                                        'type' => 'QUICK_REPLY',
-                                        'title' => $template['title'],
-                                        'id' => $template['id'],
-                                    ]),
-                                ],
+                                'actions' => $actions,
                             ]),
                         ]),
                     ])
@@ -108,5 +101,83 @@ class CreateContentTemplates extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * The templates to register, keyed by the .env variable their SID belongs
+     * in. Public so a test can check the action ids here against the grammar
+     * WhatsappBotService::BUTTON_ASK expects — nothing at runtime ties the two
+     * together otherwise.
+     *
+     * @return array<string, array{friendly_name: string, body_sample: string, sample: string, actions: array<int, array{title: string, id: string}>}>
+     */
+    public function templates(): array
+    {
+        $menuSample = '¿Querés algo más de EZEIZA / MINISTRO PISTARINI?';
+
+        return [
+            'TWILIO_CONTENT_SID_METAR' => [
+                'friendly_name' => 'notams_metar_suscribir',
+                'body_sample' => 'METAR SAEZ 271400Z 18008KT 9999 SCT020 22/14 Q1013',
+                'sample' => 'SAEZ',
+                'actions' => [
+                    // The aerodrome the button acts on is substituted here at
+                    // send time and comes back to us verbatim as
+                    // ButtonPayload, so the tap needs no guessing about what
+                    // the user meant. The twelve is baked into the id rather
+                    // than passed at send time, because it is also the
+                    // caption on the button — the two must not drift apart.
+                    ['title' => '🔔 Avisarme 12 h', 'id' => 'sub:{{2}}:12'],
+                ],
+            ],
+            'TWILIO_CONTENT_SID_ALERT' => [
+                'friendly_name' => 'notams_metar_baja',
+                'body_sample' => 'METAR SAEZ 271400Z 18008KT 9999 SCT020 22/14 Q1013',
+                'sample' => 'SAEZ',
+                'actions' => [
+                    ['title' => '🔕 Dar de baja', 'id' => 'unsub:{{2}}'],
+                ],
+            ],
+            'TWILIO_CONTENT_SID_MENU_NOTAM' => [
+                'friendly_name' => 'notams_menu_notam',
+                'body_sample' => $menuSample,
+                'sample' => 'SAEZ',
+                'actions' => [
+                    ['title' => '🌦️ METAR', 'id' => 'ask:metar:{{2}}'],
+                    ['title' => '🔭 TAF', 'id' => 'ask:taf:{{2}}'],
+                    ['title' => '🌅 Crepúsculo', 'id' => 'ask:crepusculo:{{2}}'],
+                ],
+            ],
+            'TWILIO_CONTENT_SID_MENU_METAR' => [
+                'friendly_name' => 'notams_menu_metar',
+                'body_sample' => $menuSample,
+                'sample' => 'SAEZ',
+                'actions' => [
+                    ['title' => '✈️ NOTAMs', 'id' => 'ask:notam:{{2}}'],
+                    ['title' => '🔭 TAF', 'id' => 'ask:taf:{{2}}'],
+                    ['title' => '🌅 Crepúsculo', 'id' => 'ask:crepusculo:{{2}}'],
+                ],
+            ],
+            'TWILIO_CONTENT_SID_MENU_TAF' => [
+                'friendly_name' => 'notams_menu_taf',
+                'body_sample' => $menuSample,
+                'sample' => 'SAEZ',
+                'actions' => [
+                    ['title' => '✈️ NOTAMs', 'id' => 'ask:notam:{{2}}'],
+                    ['title' => '🌦️ METAR', 'id' => 'ask:metar:{{2}}'],
+                    ['title' => '🌅 Crepúsculo', 'id' => 'ask:crepusculo:{{2}}'],
+                ],
+            ],
+            'TWILIO_CONTENT_SID_MENU_CREPUSCULO' => [
+                'friendly_name' => 'notams_menu_crepusculo',
+                'body_sample' => $menuSample,
+                'sample' => 'SAEZ',
+                'actions' => [
+                    ['title' => '✈️ NOTAMs', 'id' => 'ask:notam:{{2}}'],
+                    ['title' => '🌦️ METAR', 'id' => 'ask:metar:{{2}}'],
+                    ['title' => '🔭 TAF', 'id' => 'ask:taf:{{2}}'],
+                ],
+            ],
+        ];
     }
 }

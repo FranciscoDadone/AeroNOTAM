@@ -42,6 +42,13 @@ final readonly class ReplyButton
         );
     }
 
+    /**
+     * "Stop watching this aerodrome."
+     *
+     * Rides on every alert rather than only the first: an alert is unsolicited
+     * by definition, so the way out of it travels with it rather than being
+     * something the reader has to remember how to ask for.
+     */
     public static function unsubscribe(string $icaoCode): self
     {
         return new self(
@@ -49,6 +56,47 @@ final readonly class ReplyButton
             payloadValue: $icaoCode,
             fallbackHint: "_Respondeme «baja {$icaoCode}» para dejar de recibir estos avisos._",
         );
+    }
+
+    /**
+     * "Want anything else about this aerodrome?" — one button offering one of
+     * the other three topics.
+     *
+     * One template per topic already answered, because a quick-reply
+     * template's captions are fixed when it is registered: the only thing that
+     * varies at send time is the aerodrome, which rides in {{2}} and comes back
+     * inside whichever action id was tapped.
+     */
+    public static function menu(string $topic, string $code): self
+    {
+        return new self(
+            contentSid: (string) config("services.twilio.content_sid_menu_{$topic}"),
+            payloadValue: $code,
+            fallbackHint: self::menuHint($topic, $code),
+        );
+    }
+
+    /**
+     * The topics each menu offers, in a fixed order — NOTAM, METAR, TAF,
+     * crepúsculo, minus the one just answered. Only the written fallback reads
+     * this; the captions themselves live in whatsapp:content-templates, because
+     * they are baked into the template and cannot be changed from here.
+     *
+     * @var array<string, array<int, string>>
+     */
+    protected const MENU_OFFERS = [
+        'notam' => ['metar', 'taf', 'crepusculo'],
+        'metar' => ['notam', 'taf', 'crepusculo'],
+        'taf' => ['notam', 'metar', 'crepusculo'],
+        'crepusculo' => ['notam', 'metar', 'taf'],
+    ];
+
+    protected static function menuHint(string $topic, string $code): string
+    {
+        $commands = array_map(fn (string $offer) => "«{$offer} {$code}»", self::MENU_OFFERS[$topic]);
+        $last = array_pop($commands);
+
+        return '_También puedo pasarte '.implode(', ', $commands)." o {$last}._";
     }
 
     /**

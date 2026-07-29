@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Contracts\WhatsappSender;
 use App\DataObjects\WhatsappReply;
+use App\Jobs\Concerns\DeliversWhatsappReply;
 use App\Models\WhatsappMessage;
 use App\Services\WhatsappBotService;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -13,7 +14,7 @@ use Throwable;
 
 class ProcessWhatsappMessage implements ShouldQueue
 {
-    use Queueable;
+    use DeliversWhatsappReply, Queueable;
 
     public int $timeout = 120;
 
@@ -65,36 +66,9 @@ class ProcessWhatsappMessage implements ShouldQueue
             $reply = WhatsappReply::of('Tuve un problema procesando tu consulta. Probá de nuevo en unos minutos.');
         }
 
-        $this->deliver($sender, $reply);
+        $this->deliver($sender, $this->from, $reply);
 
-        $this->log?->recordReply($reply->messages, $startedAt);
-    }
-
-    /**
-     * Send failures *do* propagate, so the queue retries delivery.
-     *
-     * The button, when there is one, rides on the last message only: a long
-     * answer arrives as a numbered run, and repeating the same offer under each
-     * part would read as several offers instead of one.
-     */
-    protected function deliver(WhatsappSender $sender, WhatsappReply $reply): void
-    {
-        $last = count($reply->messages) - 1;
-
-        foreach ($reply->messages as $i => $message) {
-            if ($i === $last && $reply->button !== null) {
-                $sender->sendWithButtons(
-                    $this->from,
-                    $reply->button->contentSid,
-                    $reply->button->variables($message),
-                    $message."\n\n".$reply->button->fallbackHint,
-                );
-
-                continue;
-            }
-
-            $sender->send($this->from, $message);
-        }
+        $this->log?->recordReply(array_column($reply->outbound(), 0), $startedAt);
     }
 
     /**

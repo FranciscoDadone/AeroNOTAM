@@ -86,3 +86,40 @@ it('declares a retry policy', function () {
     expect($job->tries)->toBe(3)
         ->and($job->backoff)->toBe([10, 60]);
 });
+
+/**
+ * The follow-up menu is a message of its own, sent after the answer — never
+ * merged onto it, since a WhatsApp message can only carry buttons from one
+ * content template.
+ */
+it('sends the menu as a message of its own after the answer', function () {
+    withButtonTemplates();
+
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque'))
+        ->handle(app(WhatsappBotService::class), $this->sender);
+
+    expect($this->sender->sent)->toHaveCount(3)
+        ->and($this->sender->sentWithButtons)->toHaveCount(1)
+        ->and($this->sender->templatedBodies()[0])->toContain('AEROPARQUE')
+        ->and($this->sender->sentWithButtons[0]['variables'][2])->toBe('SABE');
+});
+
+it('sends the watch offer and the menu as two separate templated messages', function () {
+    fakeMetar();
+    withButtonTemplates();
+
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'metar EZE'))
+        ->handle(app(WhatsappBotService::class), $this->sender);
+
+    expect($this->sender->sentWithButtons)->toHaveCount(2)
+        ->and($this->sender->sentWithButtons[0]['contentSid'])->toBe('HXsub')
+        ->and($this->sender->sentWithButtons[1]['contentSid'])->toBe('HXmenumetar');
+});
+
+it('sends nothing extra when no menu template is registered', function () {
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque'))
+        ->handle(app(WhatsappBotService::class), $this->sender);
+
+    expect($this->sender->sent)->toHaveCount(3)
+        ->and($this->sender->sentWithButtons)->toBeEmpty();
+});

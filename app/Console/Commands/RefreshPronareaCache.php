@@ -43,7 +43,7 @@ class RefreshPronareaCache extends Command
 
         $this->info(sprintf('PRONAREA: %d de %d FIR actualizadas.', $refreshed, count($firs)));
 
-        return $refreshed > 0 || $firs === [] ? self::SUCCESS : self::FAILURE;
+        return $refreshed > 0 ? self::SUCCESS : self::FAILURE;
     }
 
     /**

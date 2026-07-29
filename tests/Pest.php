@@ -112,6 +112,48 @@ function fakeTaf(mixed $smn = null, mixed $noaa = null): void
 }
 
 /**
+ * HTML captured verbatim from hidro.gov.ar — the SHN's sun table for Santa Rosa,
+ * July 2026, the whole month in one page. Same reasoning as the other fixtures:
+ * it is what tells us when the SHN rearranges its markup, and the failure mode
+ * otherwise is a bot that stops knowing when the sun goes down.
+ */
+function shnFixture(string $name): string
+{
+    return file_get_contents(__DIR__."/Fixtures/shn/{$name}");
+}
+
+/**
+ * Stub the SHN's sun query. One request answers a whole month, so a test that
+ * asks for two days of July hits this once.
+ */
+function fakeShnSun(mixed $response = null): void
+{
+    Http::fake([
+        '*hidro.gov.ar/observatorio/REsol.asp*' => $response ?? Http::response(shnFixture('sol-santa-rosa-jul-2026.html')),
+    ]);
+}
+
+/**
+ * The SHN's table with the symbols it prints instead of an hour where the sun
+ * never rises, never sets, or never leaves civil twilight. Synthetic rather than
+ * captured: no locality on its list sits far enough south to produce them today,
+ * but the page documents them and the parser has to survive one appearing.
+ */
+function shnSunPageWith(string $dawn, string $sunrise, string $sunset, string $dusk): string
+{
+    return <<<HTML
+    <table class="table table-bordered interlineado">
+        <thead>
+            <tr><th>Día del mes</th><th>Crep. Matutino</th><th>Salida</th><th>Azimut Salida</th><th>Puesta</th><th>Azimut Puesta</th><th>Crep. Vespertino</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>01</td><td>{$dawn}</td><td>{$sunrise}</td><td> 35</td><td>{$sunset}</td><td>324</td><td>{$dusk}</td></tr>
+        </tbody>
+    </table>
+    HTML;
+}
+
+/**
  * NOAA's JSON shape, carrying the same report the SMN publishes — as it is
  * relayed over the international exchange, i.e. without the SMN's national
  * "RMK" group or the trailing "=".

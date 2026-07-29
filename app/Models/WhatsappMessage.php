@@ -49,6 +49,7 @@ class WhatsappMessage extends Model
         'notam' => 'NOTAM',
         'metar' => 'METAR',
         'taf' => 'TAF',
+        'crepusculo' => 'Crepúsculo',
         'subscribe' => 'Alta de alerta',
         'unsubscribe' => 'Baja de alerta',
         'list' => 'Alertas activas',

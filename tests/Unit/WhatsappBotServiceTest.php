@@ -4,6 +4,7 @@ use App\DataObjects\Metar;
 use App\Models\Airport;
 use App\Models\MetarSubscription;
 use App\Services\WhatsappBotService;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -847,4 +848,142 @@ it('keeps every alert message inside the template body limit', function () {
     foreach ($reply->messages as $message) {
         expect(mb_strlen($message))->toBeLessThanOrEqual(1024);
     }
+});
+
+/*
+|--------------------------------------------------------------------------
+| Crepúsculo
+|--------------------------------------------------------------------------
+|
+| The one answer that is about a city instead of an aerodrome, because that is
+| how the SHN publishes it. The routing is what these guard: a sun question must
+| never be read as a forecast, as an alert, or as a NOTAM query.
+|
+*/
+
+it('answers the sun times for a city', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
+    fakeShnSun();
+
+    $reply = bot()->reply('crepusculo santa rosa')->messages;
+
+    expect($reply)->toHaveCount(1)
+        ->and($reply[0])
+        ->toContain('SANTA ROSA')
+        ->toContain('Crepúsculo matutino: 11:01 UTC (08:01 local)')
+        ->toContain('Salida del sol: 11:30 UTC (08:30 local)')
+        ->toContain('Puesta del sol: 21:12 UTC (18:12 local)')
+        ->toContain('Crepúsculo vespertino: 21:40 UTC (18:40 local)')
+        ->toContain('Servicio de Hidrografía Naval');
+
+    Carbon::setTestNow();
+});
+
+/**
+ * The day is the one on the asker's calendar. At 22:00 in Argentina it is
+ * already tomorrow in UTC, and answering with tomorrow's sunset would be wrong
+ * by a day for the one person most likely to be asking: someone flying at night.
+ */
+it('takes today in Argentine time and not in UTC', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-02 01:00:00', 'UTC'));
+    fakeShnSun();
+
+    // 01:00 UTC on the 2nd is 22:00 on the 1st in Argentina.
+    expect(bot()->reply('crepusculo santa rosa')->messages[0])->toContain('hoy, 01/07');
+
+    Carbon::setTestNow();
+});
+
+it('answers the sun times for tomorrow when asked', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
+    fakeShnSun();
+
+    $reply = bot()->reply('crepusculo mañana en santa rosa')->messages;
+
+    expect($reply)->toHaveCount(1)
+        ->and($reply[0])
+        ->toContain('mañana, 02/07')
+        ->toContain('Crepúsculo vespertino: 21:41 UTC (18:41 local)');
+
+    Carbon::setTestNow();
+});
+
+it('answers the sun times for yesterday when asked', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-02 15:00:00', 'UTC'));
+    fakeShnSun();
+
+    $reply = bot()->reply('crepusculo ayer santa rosa')->messages;
+
+    expect($reply)->toHaveCount(1)
+        ->and($reply[0])
+        ->toContain('ayer, 01/07')
+        ->toContain('Crepúsculo vespertino: 21:40 UTC (18:40 local)');
+
+    Carbon::setTestNow();
+});
+
+it('answers the sun times for an explicit date', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
+    fakeShnSun();
+
+    $reply = bot()->reply('crepusculo santa rosa 03/07')->messages;
+
+    expect($reply)->toHaveCount(1)
+        ->and($reply[0])
+        ->toContain('03/07')
+        ->not->toContain('hoy')
+        ->not->toContain('mañana');
+
+    Carbon::setTestNow();
+});
+
+it('routes sun questions ahead of the forecast and the alerts', function (string $message) {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
+    fakeShnSun();
+
+    expect(bot()->reply($message, 'whatsapp:+5491100000000')->messages[0])
+        ->toContain('Crepúsculo matutino')
+        ->not->toContain('Ya te estoy avisando');
+
+    Carbon::setTestNow();
+})->with([
+    // Carries a TAF keyword ("mañana") and would otherwise be answered with a forecast.
+    'tomorrow' => ['a que hora anochece mañana en santa rosa'],
+    // Carries a subscription keyword, but a twilight has nothing to watch.
+    'avisame' => ['avisame a que hora atardece en santa rosa'],
+]);
+
+it('names the localities it has when the message has none', function () {
+    fakeShnSun();
+
+    $reply = bot()->reply('crepusculo tandil')->messages;
+
+    expect($reply)->toHaveCount(1)
+        ->and($reply[0])
+        ->toContain('Ciudades disponibles')
+        ->toContain('SANTA ROSA')
+        ->toContain('USHUAIA');
+
+    Http::assertNothingSent();
+});
+
+it('says so when the SHN cannot be reached', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
+    fakeShnSun(Http::response('Server Error', 500));
+
+    expect(bot()->reply('crepusculo santa rosa')->messages[0])
+        ->toContain('No pude consultar')
+        ->toContain('Hidrografía Naval');
+
+    Carbon::setTestNow();
+});
+
+/**
+ * The sun keywords sit first in the topic match, which is exactly the kind of
+ * change that quietly swallows the topics under it.
+ */
+it('still answers NOTAMs for a city that also has sun data', function () {
+    fakeAnac();
+
+    expect(bot()->reply('notams santa rosa')->messages[0])->toContain('(OSA)');
 });

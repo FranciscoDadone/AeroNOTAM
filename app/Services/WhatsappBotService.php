@@ -7,10 +7,13 @@ use App\DataObjects\Metar;
 use App\DataObjects\Notam;
 use App\DataObjects\ReplyButton;
 use App\DataObjects\ReplyContext;
+use App\DataObjects\SunTimes;
 use App\DataObjects\Taf;
 use App\DataObjects\WhatsappReply;
 use App\Models\MetarSubscription;
 use App\Support\AirportResolver;
+use App\Support\SunCityResolver;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
@@ -74,6 +77,31 @@ class WhatsappBotService
     ];
 
     /**
+     * Words that ask what time the sun does something, which is astronomy and
+     * not weather.
+     *
+     * "orto" is deliberately absent even though it is the proper term: it lives
+     * inside "aeropuerto", and matching is by substring.
+     */
+    protected const SUN_KEYWORDS = [
+        'crepusculo', 'amanece', 'atardece', 'anochece', 'ocaso',
+        'salida del sol', 'puesta del sol', 'sale el sol', 'se pone el sol',
+        'luz diurna', 'primera luz', 'ultima luz',
+    ];
+
+    /**
+     * How the SHN's month names are spelled in ordinary text, for a question
+     * like "crepusculo en salta el 15 de agosto". Accent-stripped, since the
+     * message reaching this map already went through Str::ascii().
+     */
+    protected const MONTH_NAMES = [
+        'enero' => 1, 'febrero' => 2, 'marzo' => 3, 'abril' => 4,
+        'mayo' => 5, 'junio' => 6, 'julio' => 7, 'agosto' => 8,
+        'septiembre' => 9, 'setiembre' => 9, 'octubre' => 10,
+        'noviembre' => 11, 'diciembre' => 12,
+    ];
+
+    /**
      * Words that mean the user wants to be told about future changes rather
      * than about the weather right now.
      */
@@ -124,6 +152,8 @@ class WhatsappBotService
         protected MetarEnricher $metarEnricher,
         protected TafService $tafService,
         protected TafEnricher $tafEnricher,
+        protected ShnSunService $sun,
+        protected SunCityResolver $sunCities,
     ) {
         $this->context = new ReplyContext;
     }
@@ -154,6 +184,12 @@ class WhatsappBotService
         }
 
         $topic = $this->context->topic = $this->topic($message);
+
+        // Resolves a city and not an aerodrome, so it never reaches the
+        // indicator matching below.
+        if ($topic === 'crepusculo') {
+            return $this->sunReply($message);
+        }
 
         if (in_array($topic, ['list', 'subscribe', 'unsubscribe'], true)) {
             return $from === null
@@ -220,10 +256,16 @@ class WhatsappBotService
     /**
      * What the message is actually asking for.
      *
-     * The subscription topics are checked first because they overlap with every
-     * other one by design: "avisame si cambia el clima en EZE" contains a METAR
-     * word, and answering it with today's observation would silently drop the
-     * part the user actually asked for.
+     * The sun is checked before everything else, subscriptions included. It is
+     * the one topic with nothing to watch — an aerodrome's twilight for today is
+     * already fixed — so "avisame a qué hora atardece en Neuquén" is a question,
+     * not an alert. It also has to come before the forecast, because "a qué hora
+     * anochece mañana" carries a TAF word.
+     *
+     * The subscription topics are checked next because they overlap with every
+     * remaining one by design: "avisame si cambia el clima en EZE" contains a
+     * METAR word, and answering it with today's observation would silently drop
+     * the part the user actually asked for.
      *
      * "notam" wins over the rest when the word is there: someone who typed it
      * knows what they want, and "hay notams para mañana en EZE" must not be
@@ -234,6 +276,7 @@ class WhatsappBotService
         $normalized = Str::ascii(mb_strtolower($message));
 
         return match (true) {
+            $this->mentions($normalized, self::SUN_KEYWORDS) => 'crepusculo',
             $this->mentions($normalized, self::LIST_KEYWORDS) => 'list',
             $this->mentions($normalized, self::UNSUBSCRIBE_KEYWORDS) => 'unsubscribe',
             $this->mentions($normalized, self::SUBSCRIBE_KEYWORDS) => 'subscribe',
@@ -646,6 +689,185 @@ class WhatsappBotService
     }
 
     /**
+     * What time the sun does its four things on the day asked, for a city.
+     *
+     * The day is taken in Argentine official time and not in UTC: at 22:00 in
+     * Buenos Aires it is already tomorrow in Greenwich, and "hoy" for whoever is
+     * typing is the day on their own calendar — same reasoning applies to
+     * resolving "mañana" or an explicit date.
+     */
+    protected function sunReply(string $message): WhatsappReply
+    {
+        $city = $this->sunCities->matchFromText($message);
+
+        if ($city === null) {
+            return WhatsappReply::of($this->sunCitiesMessage());
+        }
+
+        $today = CarbonImmutable::now(ShnSunService::OFFSET)->startOfDay();
+        $date = $this->resolveSunDate($message, $today);
+
+        try {
+            $times = $this->sun->forDate($city, $date);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return WhatsappReply::of('No pude consultar la tabla del sol del Servicio de Hidrografía Naval en este momento. Probá de nuevo en unos minutos.');
+        }
+
+        if ($times === null) {
+            return WhatsappReply::of("El SHN no publica datos del sol para *{$city}* en esta fecha.");
+        }
+
+        return $this->formatSunTimes($times, $this->sunDateLabel($date, $today));
+    }
+
+    /**
+     * Which day the message is actually asking about: yesterday or tomorrow
+     * when it says so, an explicit date such as "15/08" or "15 de agosto" when
+     * it names one, and today otherwise.
+     *
+     * An explicit date wins over either relative word when somehow both appear,
+     * because there is nothing more specific than a date the user typed
+     * themselves.
+     */
+    protected function resolveSunDate(string $message, CarbonImmutable $today): CarbonImmutable
+    {
+        $normalized = Str::ascii(mb_strtolower($message));
+
+        return $this->explicitDate($normalized, $today) ?? match (true) {
+            str_contains($normalized, 'ayer') => $today->subDay(),
+            str_contains($normalized, 'manana') => $today->addDay(),
+            default => $today,
+        };
+    }
+
+    /**
+     * A day/month (and optionally year) the message names, either numeric
+     * ("15/08" or "15/08/2026") or written out ("15 de agosto").
+     */
+    protected function explicitDate(string $normalized, CarbonImmutable $today): ?CarbonImmutable
+    {
+        if (preg_match('/\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{4}|\d{2}))?\b/', $normalized, $m) === 1) {
+            return $this->buildDate((int) $m[1], (int) $m[2], isset($m[3]) ? $this->fullYear($m[3]) : null, $today);
+        }
+
+        if (preg_match('/\b(\d{1,2})\s+de\s+('.implode('|', array_keys(self::MONTH_NAMES)).')\b/', $normalized, $m) === 1) {
+            return $this->buildDate((int) $m[1], self::MONTH_NAMES[$m[2]], null, $today);
+        }
+
+        return null;
+    }
+
+    protected function fullYear(string $year): int
+    {
+        return strlen($year) === 2 ? 2000 + (int) $year : (int) $year;
+    }
+
+    /**
+     * A calendar date from its parts, or null when the day/month combination
+     * does not exist (the SHN prints no such row either, so "31/04" is honestly
+     * a question with no answer rather than one to guess at).
+     *
+     * When no year was named, the current one is assumed unless that day has
+     * already gone by — "el 5 de enero" asked in December means the January
+     * still ahead, not the one behind.
+     */
+    protected function buildDate(int $day, int $month, ?int $year, CarbonImmutable $today): ?CarbonImmutable
+    {
+        $explicitYear = $year !== null;
+        $year ??= $today->year;
+
+        if (! checkdate($month, $day, $year)) {
+            return null;
+        }
+
+        $date = CarbonImmutable::createFromDate($year, $month, $day, ShnSunService::OFFSET)->startOfDay();
+
+        if (! $explicitYear && $date->lt($today)) {
+            $date = $date->addYear();
+        }
+
+        return $date;
+    }
+
+    /**
+     * "hoy, 01/07", "mañana, 02/07", "ayer, 30/06", or just "15/08" once the
+     * date is far enough that no relative word would be honest.
+     */
+    protected function sunDateLabel(CarbonImmutable $date, CarbonImmutable $today): string
+    {
+        return match (true) {
+            $date->isSameDay($today) => "hoy, {$date->format('d/m')}",
+            $date->isSameDay($today->addDay()) => "mañana, {$date->format('d/m')}",
+            $date->isSameDay($today->subDay()) => "ayer, {$date->format('d/m')}",
+            default => $date->format('d/m'),
+        };
+    }
+
+    /**
+     * Both clocks, on purpose. The bot answers in UTC everywhere else because
+     * that is what a flight plan is written in, and this stays consistent with
+     * it — but the decision this data serves ("¿llego con luz?") is made against
+     * the clock on the wall, so the local time is right there next to it.
+     */
+    protected function formatSunTimes(SunTimes $times, string $dateLabel): WhatsappReply
+    {
+        $lines = ["🌅 *{$times->city}* — {$dateLabel}", ''];
+
+        $moments = [
+            ['dawn', 'Crepúsculo matutino', $times->dawn],
+            ['sunrise', 'Salida del sol', $times->sunrise],
+            ['sunset', 'Puesta del sol', $times->sunset],
+            ['dusk', 'Crepúsculo vespertino', $times->dusk],
+        ];
+
+        foreach ($moments as [$moment, $label, $at]) {
+            $lines[] = $at === null
+                ? "• {$label}: {$this->sunSymbolMeaning($times->symbolFor($moment))}"
+                : sprintf(
+                    '• %s: %s UTC (%s local)',
+                    $label,
+                    $at->format('H:i'),
+                    $at->setTimezone(ShnSunService::OFFSET)->format('H:i'),
+                );
+        }
+
+        $lines[] = '';
+        $lines[] = '_Fuente: Servicio de Hidrografía Naval_';
+
+        return WhatsappReply::of(implode("\n", $lines));
+    }
+
+    /**
+     * The SHN prints a symbol instead of an hour on the days a high-latitude
+     * place has no sunrise, no sunset, or no real night. Saying which one it is
+     * beats leaving a blank the reader has to interpret.
+     */
+    protected function sunSymbolMeaning(?string $symbol): string
+    {
+        return match ($symbol) {
+            '***' => 'el sol no se pone en esta fecha',
+            '----' => 'el sol no sale en esta fecha',
+            '////' => 'hay crepúsculo toda la noche',
+            default => 'sin dato',
+        };
+    }
+
+    /**
+     * The SHN publishes by city, not by aerodrome, so there is no honest way to
+     * answer for a place that is not on its list — naming the ones that are is
+     * the whole answer.
+     */
+    protected function sunCitiesMessage(): string
+    {
+        return "🌅 El crepúsculo lo publica el Servicio de Hidrografía Naval por ciudad, y no encontré ninguna en tu mensaje.\n\n"
+            .'Probá con: _"crepusculo santa rosa"_.'
+            ."\n\n"
+            .'*Ciudades disponibles:* '.implode(', ', $this->sunCities->cities()).'.';
+    }
+
+    /**
      * One WhatsApp message per observation: the report verbatim, then what it
      * says in Spanish.
      *
@@ -948,7 +1170,9 @@ class WhatsappBotService
             ."\n\n"
             .'Y si lo que te interesa es cómo va a estar, pedime el TAF: _"taf EZE"_ o _"pronóstico de Aeroparque"_.'
             ."\n\n"
-            .'También puedo avisarte cuando el clima cambie: _"avisame EZE"_. Con _"mis alertas"_ ves las que tenés activas.';
+            .'También puedo avisarte cuando el clima cambie: _"avisame EZE"_. Con _"mis alertas"_ ves las que tenés activas.'
+            ."\n\n"
+            .'Y para saber hasta qué hora hay luz, pedime el crepúsculo: _"crepusculo santa rosa"_ (el SHN lo publica por ciudad).';
     }
 
     /**

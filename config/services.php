@@ -118,6 +118,18 @@ return [
         'taf_hours' => env('NOAA_TAF_HOURS', 8),
     ],
 
+    // Servicio de Hidrografía Naval: salida y puesta del sol, y crepúsculo
+    // civil, por ciudad. Es la autoridad argentina en la materia.
+    'shn' => [
+        'base_url' => env('SHN_BASE_URL', 'https://www.hidro.gov.ar'),
+
+        // Una consulta trae el mes entero, y la efeméride de un mes está
+        // publicada de antemano: no cambia nunca. El TTL largo existe para no
+        // volver a molestar a un servicio del Estado por una tabla que ya
+        // tenemos. Treinta días cubre el mes consultado con margen.
+        'ttl' => env('SHN_SUN_TTL', 2592000),
+    ],
+
     'twilio' => [
         'sid' => env('TWILIO_ACCOUNT_SID'),
         'token' => env('TWILIO_AUTH_TOKEN'),

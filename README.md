@@ -26,6 +26,7 @@ ANAC (scraping HTML) → AnacNotamService                → NotamEnricher → A
 SMN  (scraping HTML) ┐                                                 → Bot WhatsApp
 NOAA (respaldo, API) ┼→ MetarService (caché + failover) → MetarEnricher
                      └→ TafService   (caché + failover) → TafEnricher
+SHN  (scraping HTML) → ShnSunService (caché)                            → Bot WhatsApp
 ```
 
 - **`AnacNotamService`** habla con ANAC y parsea su HTML. Devuelve NOTAM crudos
@@ -39,6 +40,9 @@ NOAA (respaldo, API) ┼→ MetarService (caché + failover) → MetarEnricher
 - **`MetarService`** y **`TafService`** son el equivalente para el tiempo. Los
   dos heredan de `AviationReportService`: la caché, el cooldown y el failover
   son los mismos, porque el problema de acceder al SMN es el mismo.
+- **`ShnSunService`** es el único que no habla de aeronáutica sino de astronomía:
+  trae del SHN la tabla de salida, puesta y crepúsculo civil. Sólo lo usa el bot,
+  y sólo por ciudad — ver [Crepúsculo](#crepúsculo-hasta-qué-hora-hay-luz).
 - **`MetarConditions`** es lo único que no lee para mostrar sino para comparar:
   saca del METAR los cinco grupos que deciden si un cambio merece despertar a
   alguien. Es lo que hace posible la suscripción "avisame si cambia" sin
@@ -269,6 +273,27 @@ ahora hay con qué contestarlas.
 
 La palabra `"notam"` gana sobre todo lo demás: quien la escribió sabe lo que
 pidió, y _"hay notams para mañana en EZE?"_ no se contesta con un pronóstico.
+
+### Crepúsculo: hasta qué hora hay luz
+
+`"crepusculo santa rosa"`, `"a qué hora atardece en Bariloche?"` o
+`"crepusculo EZE"` devuelven el crepúsculo matutino, la salida del sol, la puesta
+y el crepúsculo vespertino, en UTC y en hora oficial argentina.
+
+El dato importante es el crepúsculo y no el ocaso: el sol se pone media hora
+antes de que oscurezca, y esa media hora es la diferencia entre llegar de día y
+llegar de noche. El que se publica es el **crepúsculo civil**, que es el que usa
+la reglamentación.
+
+La fuente es el [Servicio de Hidrografía Naval](https://www.hidro.gov.ar/observatorio/Astronomia.asp),
+la autoridad argentina en la materia, y de ahí sale la única limitación de esta
+respuesta: **el SHN publica 34 ciudades, no los 712 aeródromos**. Un aeródromo
+que sirve a una de esas ciudades contesta por ella — Ezeiza, San Fernando, Morón
+y El Palomar son todos Buenos Aires, están a menos de un minuto de crepúsculo de
+distancia — y para el resto el bot dice que no lo tiene y lista las que sí.
+
+Una consulta al SHN trae el mes entero y esa tabla está publicada de antemano,
+así que se cachea treinta días: no hay nada que revalidar.
 
 **Requiere un worker corriendo.** Sin él, el webhook acepta el mensaje y nadie
 responde nunca:

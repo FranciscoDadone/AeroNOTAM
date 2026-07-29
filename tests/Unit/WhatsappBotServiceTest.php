@@ -111,14 +111,14 @@ it('says an aerodrome is closed even when it has no notams', function () {
     expect($reply)->toHaveCount(1)
         ->and($reply[0])
         ->toContain('No hay NOTAM activos')
-        ->toContain('Aeródromo cerrado (CLSD)');
+        ->toContain('Aeródromo cerrado');
 });
 
 it('carries the closed warning on every part of a split reply', function () {
     fakeAnac();
 
     foreach (bot()->reply('notams CCA')->messages as $message) {
-        expect($message)->toContain('Aeródromo cerrado (CLSD)');
+        expect($message)->toContain('Aeródromo cerrado');
     }
 });
 

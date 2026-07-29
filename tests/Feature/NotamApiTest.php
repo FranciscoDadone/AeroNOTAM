@@ -44,6 +44,24 @@ it('404s for an unknown aerodrome', function () {
 });
 
 /**
+ * A closed aerodrome is usually quiet, and "cantidad: 0" on its own would let
+ * a client present it as operating normally.
+ */
+it('flags a closed aerodrome even when it has no notams', function () {
+    fakeAnac(Http::response('error', 500));
+
+    // Curuzú Cuatiá, which MADHEL publishes as AD CERRADO (CLSD).
+    $this->getJson('/api/notams?aerodromo=CCA')
+        ->assertOk()
+        ->assertJsonPath('cerrado', true)
+        ->assertJsonPath('cantidad', 0);
+
+    $this->getJson('/api/notams?aerodromo=EZE')
+        ->assertOk()
+        ->assertJsonPath('cerrado', false);
+});
+
+/**
  * ANAC's PIB answers a quiet aerodrome and an invented code identically — a
  * 500 either way — so a small aerodrome like ELP used to be reported as
  * unrecognised. The MADHEL registry is what tells the two apart.

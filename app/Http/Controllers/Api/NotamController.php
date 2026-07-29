@@ -59,6 +59,7 @@ class NotamController extends Controller
         return response()->json([
             'aerodromo' => $indicator,
             'nombre' => $this->airports->nameFor($indicator),
+            'cerrado' => $this->airports->isClosed($indicator),
             'cantidad' => count($notams),
             'notams' => NotamResource::collection($notams)->resolve(),
         ]);

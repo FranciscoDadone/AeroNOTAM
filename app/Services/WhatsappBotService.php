@@ -508,6 +508,7 @@ class WhatsappBotService
             $this->airports->nameFor($indicator) ?? $indicator,
             $indicator,
             $this->enricher->enrich($notams),
+            $this->airports->isClosed($indicator),
         );
     }
 
@@ -770,13 +771,20 @@ class WhatsappBotService
      *
      * @param  array<int, Notam>  $notams
      */
-    protected function formatNotams(string $airportName, string $indicator, array $notams): WhatsappReply
+    protected function formatNotams(string $airportName, string $indicator, array $notams, bool $closed = false): WhatsappReply
     {
+        // A closed aerodrome usually has nothing active to report, and "no hay
+        // NOTAM activos ✅" on its own reads as "está todo bien" — the opposite
+        // of what a pilot needs to know. It rides on the header rather than on
+        // a message of its own so that it survives a reply split into parts,
+        // and so the length budget below accounts for it.
+        $closedNotice = $closed ? "\n⛔ *Aeródromo cerrado*" : '';
+
         if ($notams === []) {
-            return WhatsappReply::of("No hay NOTAM activos para *{$airportName}* ({$indicator}) en este momento. ✅");
+            return WhatsappReply::of("No hay NOTAM activos para *{$airportName}* ({$indicator}) en este momento. ✅".$closedNotice);
         }
 
-        $header = "✈️ *{$airportName}* ({$indicator})";
+        $header = "✈️ *{$airportName}* ({$indicator})".$closedNotice;
         $total = count($notams);
 
         // Reserve room for the header and the widest plausible "(99/99) "

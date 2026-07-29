@@ -72,6 +72,18 @@ class AirportResolver
     }
 
     /**
+     * Whether MADHEL publishes this aerodrome as closed (CLSD).
+     *
+     * Worth saying out loud even when there is nothing else to report: "no hay
+     * NOTAM activos" reads as "todo en orden", and for a closed aerodrome that
+     * is exactly the wrong thing to understand.
+     */
+    public function isClosed(string $anacCode): bool
+    {
+        return (bool) Airport::query()->where('anac_code', $anacCode)->value('is_closed');
+    }
+
+    /**
      * The OACI/ICAO code for an ANAC indicator — the inverse of resolve().
      *
      * Null for the aerodromes ANAC lists without one: they can still be looked

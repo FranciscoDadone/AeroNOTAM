@@ -98,6 +98,36 @@ it('resolves the ambiguity when answered with a code', function () {
     expect(bot()->reply('CBA')->messages[0])->toContain('(CBA)');
 });
 
+/**
+ * "No hay NOTAM activos ✅" is the reply a closed aerodrome usually gets, and
+ * on its own it reads as "está todo bien" — which is the opposite of true.
+ */
+it('says an aerodrome is closed even when it has no notams', function () {
+    fakeAnac(Http::response('error', 500));
+
+    // Curuzú Cuatiá, which MADHEL publishes as AD CERRADO (CLSD).
+    $reply = bot()->reply('notams CCA')->messages;
+
+    expect($reply)->toHaveCount(1)
+        ->and($reply[0])
+        ->toContain('No hay NOTAM activos')
+        ->toContain('Aeródromo cerrado (CLSD)');
+});
+
+it('carries the closed warning on every part of a split reply', function () {
+    fakeAnac();
+
+    foreach (bot()->reply('notams CCA')->messages as $message) {
+        expect($message)->toContain('Aeródromo cerrado (CLSD)');
+    }
+});
+
+it('does not warn about aerodromes that are open', function () {
+    fakeAnac(Http::response('error', 500));
+
+    expect(bot()->reply('notams EZE')->messages[0])->not->toContain('CLSD');
+});
+
 it('numbers each notam as its own message', function () {
     fakeAnac();
 

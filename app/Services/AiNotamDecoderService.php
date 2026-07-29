@@ -13,7 +13,7 @@ class AiNotamDecoderService
      * Bump this when the prompt or glossary logic changes meaningfully, so
      * previously cached (lower-quality) decodes stop being served forever.
      */
-    protected const PROMPT_VERSION = 3;
+    protected const PROMPT_VERSION = 4;
 
     public function __construct(protected NotamAbbreviationDecoder $decoder) {}
 

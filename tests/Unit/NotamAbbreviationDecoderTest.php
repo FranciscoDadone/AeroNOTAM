@@ -22,6 +22,10 @@ it('decodes notam text into spanish', function (string $input, string $expected)
         'RWY 11 LGT OUT OF SERVICE UNTIL FURTHER NOTICE',
         'Pista 11 luz / iluminación fuera de servicio hasta nuevo aviso',
     ],
+    'displaced threshold' => [
+        'DTHR 02 100M RWY AVBL 963M',
+        'Umbral desplazado 02 100M pista disponible 963M',
+    ],
 ]);
 
 /**

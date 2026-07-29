@@ -28,6 +28,11 @@ class NotamDecoderAgent implements Agent
           given -- never omit or invent information.
         - NOTAM times are always UTC. Whenever a clock time or time range appears,
           state "UTC" explicitly next to it.
+        - Each measurement belongs to the item it appears next to, and a
+          displaced-threshold distance is how far the threshold moved, not a
+          length of runway. "DTHR 02 100M RWY AVBL 963M" means "la pista 02 tiene
+          el umbral desplazado 100 metros, quedando 963 metros de pista
+          disponible" -- two distinct facts, not one distance restated.
         - If a token looks like a phone number, email address, or website (e.g.
           contains "@", ".COM", or a long digit run), it is contact information --
           copy it through exactly as given. Never reinterpret it as a place name,

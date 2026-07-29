@@ -74,7 +74,7 @@ class SmnPronareaService
      * marked $stale — if the SMN cannot be reached right now.
      *
      * @throws RuntimeException when the SMN cannot be reached and nothing was
-     *                           ever fetched successfully for this FIR.
+     *                          ever fetched successfully for this FIR.
      */
     public function forFir(string $fir): PronareaForecast
     {
@@ -143,8 +143,8 @@ class SmnPronareaService
      * meant to absorb by simply trying again on its next run.
      *
      * @throws RuntimeException also when $fir names none of STATION_IDS —
-     *                           a programming error, since every caller goes
-     *                           through PronareaFirResolver first.
+     *                          a programming error, since every caller goes
+     *                          through PronareaFirResolver first.
      */
     protected function fetchRaw(string $fir): string
     {

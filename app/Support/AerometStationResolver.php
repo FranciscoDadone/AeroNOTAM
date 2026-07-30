@@ -68,6 +68,50 @@ class AerometStationResolver
     ];
 
     /**
+     * STATIONS split into the SMN's own five FIR sectors: EZEIZA, CORDOBA,
+     * MENDOZA, RESISTENCIA, C. RIVADAVIA, in that order — read off the real
+     * "Sector" checkbox screen for each one rather than partitioned by hand,
+     * so this always matches what "Todo Argentina" is really the union of.
+     *
+     * OgimetAerometSource has no need to split a request this way — one
+     * request answers for the whole country — but AerometService still
+     * groups the caching and RefreshAerometCache's retrying around these
+     * five, the same shape SmnAerometSource needed before OGIMET replaced it
+     * as AEROMET's only source: caching the whole country as one unit would
+     * mean two stations in different FIRs could never be warmed
+     * independently of each other.
+     */
+    public const FIR_GROUPS = [
+        [
+            '87582', '87641', '87750', '87765', '87649', '87640', '87585', '87570',
+            '87761', '87719', '87395', '87683', '87637', '87648', '87571', '87470',
+            '87576', '87532', '87497', '87548', '87593', '87534', '87563', '87692',
+            '87572', '87573', '87574', '87715', '87550', '87643', '87374', '87544',
+            '87679', '87596', '87736', '87480', '87553', '87623', '87371', '87645',
+            '87540', '87688', '87468', '87616', '87663',
+        ],
+        [
+            '87222', '87257', '87320', '87322', '87213', '87344', '87345', '87347',
+            '87046', '87007', '87217', '87467', '87050', '87016', '87349', '87360',
+            '87453', '87065', '87047', '87444', '87129', '87356', '87022', '87127',
+            '87211', '87121', '87043', '87328', '87244',
+        ],
+        [
+            '87454', '87305', '87506', '87418', '87420', '87403', '87412', '87311',
+            '87436', '87416', '87509', '87405', '87448',
+        ],
+        [
+            '87163', '87166', '87162', '87097', '87173', '87078', '87281', '87393',
+            '87187', '87148', '87289', '87178', '87270', '87155',
+        ],
+        [
+            '87860', '87800', '87904', '87803', '87880', '87774', '87814', '87852',
+            '87896', '87823', '87925', '87934', '87784', '87909', '87912', '87828',
+            '87938', '87791',
+        ],
+    ];
+
+    /**
      * How people write the stations whose listed name they would not
      * naturally type in full — a province-qualified name ("MERLO, Buenos
      * Aires") or a secondary station for a city that already has a shorter,

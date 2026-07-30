@@ -125,14 +125,25 @@ function fakePronarea(mixed $response = null): void
 }
 
 /**
- * Stub AEROMET's query on the same legacy SMN screen METAR/TAF use, keyed by
- * WMO/OMM code rather than ICAO. No second host to fake alongside it, same
- * reasoning as fakePronarea(): AEROMET has no NOAA-relayed equivalent either.
+ * Raw SYNOP lines captured verbatim from ogimet.com's getsynop CGI — same
+ * reasoning as smnFixture(): the parser is the only thing standing between us
+ * and a silently empty AEROMET reply.
+ */
+function ogimetFixture(string $name): string
+{
+    return file_get_contents(__DIR__."/Fixtures/ogimet/{$name}");
+}
+
+/**
+ * Stub AEROMET's only source — OGIMET's getsynop CGI. No second host to fake
+ * alongside it, same reasoning as fakePronarea(): AEROMET has no NOAA-relayed
+ * equivalent, and the SMN, tried here first for a while, is no longer a
+ * source at all (see OgimetAerometSource's own docblock for why).
  */
 function fakeAeromet(mixed $response = null): void
 {
     Http::fake([
-        '*observacion=aeromet*' => $response ?? Http::response(smnFixture('aeromet-junin.html')),
+        '*ogimet.com*' => $response ?? Http::response(ogimetFixture('ogimet-junin.txt')),
     ]);
 }
 

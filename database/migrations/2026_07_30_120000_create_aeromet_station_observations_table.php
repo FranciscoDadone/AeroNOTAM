@@ -10,9 +10,9 @@ use Illuminate\Support\Facades\Schema;
  * anything but the latest.
  *
  * This is what AerometService falls back to, station by station, when a
- * round of the bulk fetch (see SmnAerometSource) does not come back with
- * that station in it — whether that is a genuine SMN-wide outage or just
- * that one station "erroneo"'d out of an otherwise fine response, which
+ * round of the fetch (see OgimetAerometSource) does not come back with that
+ * station in it — whether that is an outright failure to reach the source or
+ * just that one station missing from an otherwise fine response, which
  * cannot be told apart from the response alone. A database row survives a
  * cache flush and is inspectable directly, unlike the generic cache store
  * the rest of this fallback used to share with everything else the

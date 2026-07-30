@@ -7,7 +7,7 @@ use App\Services\AerometService;
 use App\Services\MetarService;
 use App\Services\NoaaMetarSource;
 use App\Services\NoaaTafSource;
-use App\Services\SmnAerometSource;
+use App\Services\OgimetAerometSource;
 use App\Services\SmnMetarSource;
 use App\Services\SmnTafSource;
 use App\Services\TafService;
@@ -41,11 +41,13 @@ class AppServiceProvider extends ServiceProvider
             $app->make(NoaaTafSource::class),
         ]));
 
-        // Just the SMN: AEROMET has no NOAA-relayed equivalent, since SYNOP
-        // surface observations are not exchanged over OPMET the way aerodrome
-        // reports are.
+        // OGIMET only: AEROMET has no NOAA-relayed equivalent, and the SMN
+        // itself, tried here first for a while, was dropped once it became
+        // clear it was never going to answer (see OgimetAerometSource's own
+        // docblock) — a source that cannot be reached was only adding a
+        // wasted round of retries ahead of the one that can.
         $this->app->singleton(AerometService::class, fn ($app) => new AerometService([
-            $app->make(SmnAerometSource::class),
+            $app->make(OgimetAerometSource::class),
         ]));
 
         $this->app->bind(AdminMetrics::class, fn () => new AdminMetrics(

@@ -3,30 +3,27 @@
 namespace App\Console\Commands;
 
 use App\Services\AerometService;
-use App\Services\SmnAerometSource;
+use App\Support\AerometStationResolver;
 use Illuminate\Console\Command;
 use Throwable;
 
 /**
  * Keeps the AEROMET cache warm so a WhatsApp reply is rarely the first thing
- * to try the SMN.
+ * to try OGIMET.
  *
- * Retries each of SmnAerometSource::FIR_GROUPS independently, same shape as
- * RefreshPronareaCache retrying each FIR independently, and for the same
- * reason: one group being unreachable must not stop the others from
- * refreshing, and — this is the part a single combined retry got wrong,
- * confirmed live — one group answering must not be mistaken for the whole
- * job being done. A first pass that got Córdoba and Resistencia back and
- * quit there because "something" came back would leave Ezeiza — the group
- * with by far the most commonly asked-about stations — unwarmed for a full
- * TTL, which is exactly what happened before this retried per group instead
- * of as one unit.
- *
- * Retries considerably harder than SmnReportSource::get()'s own two attempts
- * per group: confirmed live, a group routinely 522s — the backend timing out
- * under its own load, not Cloudflare refusing us — on an early attempt and
- * comes through on a later one. A scheduled run has nobody waiting on it and
- * can afford to insist, in a way a live WhatsApp reply never could.
+ * Retries each of AerometStationResolver::FIR_GROUPS independently, same
+ * shape as RefreshPronareaCache retrying each FIR independently, and for the
+ * same reason: one group being unreachable must not stop the others from
+ * refreshing, and one group answering must not be mistaken for the whole job
+ * being done — confirmed live, back when the SMN was still tried first here
+ * (see OgimetAerometSource's own docblock for why it no longer is): a first
+ * pass that got Córdoba and Resistencia back and quit there because
+ * "something" came back left Ezeiza — the group with by far the most
+ * commonly asked-about stations — unwarmed for a full TTL. Retrying per
+ * group instead of as one unit is what fixed that, and stays worth keeping
+ * even against a source as reliable as OGIMET has been: a scheduled run has
+ * nobody waiting on it and can afford to insist through an isolated blip in
+ * a way a live WhatsApp reply never could.
  */
 class RefreshAerometCache extends Command
 {
@@ -38,18 +35,20 @@ class RefreshAerometCache extends Command
     {
         $attempts = (int) config('services.aeromet.refresh_attempts');
         $retrySeconds = (int) config('services.aeromet.refresh_retry_seconds');
-        $groups = count(SmnAerometSource::FIR_GROUPS);
+        $groups = count(AerometStationResolver::FIR_GROUPS);
 
         $refreshed = 0;
         $warmed = [];
 
-        foreach (array_keys(SmnAerometSource::FIR_GROUPS) as $index) {
+        foreach (array_keys(AerometStationResolver::FIR_GROUPS) as $index) {
             $rows = $this->refreshOne($aeromet, $index, $groups, $attempts, $retrySeconds);
 
-            if ($rows !== null) {
-                $refreshed++;
-                $warmed = [...$warmed, ...$rows];
+            if ($rows === null) {
+                continue;
             }
+
+            $refreshed++;
+            $warmed = [...$warmed, ...$rows];
         }
 
         $this->info(sprintf('AEROMET: %d de %d grupos actualizados.', $refreshed, $groups));

@@ -5,18 +5,18 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 /**
- * The SMN scraping rests on captured markup (tests/Fixtures/smn/), same as
- * MetarServiceTest. Unlike METAR/TAF there is no NOAA failover to exercise —
- * AEROMET has no relayed equivalent — so this only covers the single source,
- * its cache, and its cooldown.
+ * AEROMET's only source is OGIMET (tests/Fixtures/ogimet/) — a public
+ * aggregator of the WMO's Global Telecommunication System, reached with a
+ * single request per FIR group (see OgimetAerometSource's own docblock for
+ * why the SMN, tried here first for a while, is not a source here any more).
  *
- * AerometService fetches one of SmnAerometSource::FIR_GROUPS at a time — only
- * the group(s) a request's stations actually belong to, cached under
- * "aeromet:{group index}" — rather than one request for all 119 stations or
- * one per group regardless of who was asked about. Junín, Mar del Plata and
- * Neuquén — every station these fixtures name — all fall under FIR EZEIZA,
- * group index 0, which is why asking about any of them costs exactly one
- * request.
+ * AerometService fetches one of AerometStationResolver::FIR_GROUPS at a
+ * time — only the group(s) a request's stations actually belong to, cached
+ * under "aeromet:{group index}" — rather than one request for all 119
+ * stations or one per group regardless of who was asked about. Junín, Mar
+ * del Plata and Bariloche — the stations these fixtures name — fall under
+ * FIR EZEIZA, group index 0, which is why asking about any of them costs
+ * exactly one request.
  */
 beforeEach(function () {
     Cache::flush();
@@ -27,70 +27,62 @@ function aerometService(): AerometService
     return app(AerometService::class);
 }
 
-it('parses an aeromet observation from the real SMN markup', function () {
+it('parses an aeromet observation from real ogimet synop text', function () {
     fakeAeromet();
 
     $observations = aerometService()->getObservations('87548');
 
     expect($observations)->toHaveCount(1)
         ->and($observations[0]->station)->toBe('JUNIN')
-        ->and($observations[0]->observedAt)->toBe('29 - 21:00')
-        ->and($observations[0]->raw)->toBe('JUNIN 090/06KT 12KM 4Ci19800FT 16/07 Q1018.4')
-        ->and($observations[0]->phenomenonNote)->toBeNull();
+        ->and($observations[0]->observedAt)->toBe('30 - 17:00')
+        ->and($observations[0]->raw)->toBe('AAXX 30174 87548 42562 50514 10181 20122 30064 40162 57032 83530 333 56160 83630=')
+        ->and($observations[0]->source)->toBe('ogimet');
 });
 
 it('keeps stations apart when several are returned', function () {
-    fakeAeromet(Http::response(smnFixture('aeromet-multi.html')));
+    fakeAeromet(Http::response(ogimetFixture('ogimet-multi.txt')));
 
-    $observations = aerometService()->getObservations('87548 87692 87715');
-
-    expect($observations)->toHaveCount(3);
-
+    $observations = aerometService()->getObservations('87548 87765 87938');
     $byStation = collect($observations)->keyBy->station;
 
-    expect($byStation['JUNIN']->raw)->toBe('JUNIN 090/06KT 12KM 4Ci19800FT 16/07 Q1018.4')
-        ->and($byStation['MAR DEL PLATA']->raw)->toBe('MAR DEL PLATA 200/06KT 10KM 6Sc2500FT 3Ac9900FT 11/07 Q1019.7')
-        ->and($byStation['NEUQUEN']->raw)->toBe('NEUQUEN 110/04KT 10KM FBL RA CONS 3St3000FT 5Sc4900FT 05/03 Q1017.5')
-        ->and($byStation['NEUQUEN']->phenomenonNote)->toBe(
-            'Lluvia. Continua, no congelandose, debil en el momento de la observacion.'
-        );
+    expect($observations)->toHaveCount(3)
+        ->and($byStation['JUNIN']->raw)->toStartWith('AAXX 30174 87548')
+        ->and($byStation['BARILOCHE']->raw)->toStartWith('AAXX 30174 87765')
+        ->and($byStation['USHUAIA']->raw)->toStartWith('AAXX 30174 87938');
 });
 
-it('returns no observations for a code none of the fir groups name, without asking the smn at all', function () {
+it('drops a station that reported nothing rather than passing an empty observation on', function () {
+    // 87548 (Junín) has a real report; 87022 (Tartagal) is NIL for this
+    // slot — asking about both should only ever answer for the one that has
+    // something to say.
+    fakeAeromet(Http::response(ogimetFixture('ogimet-with-nil.txt')));
+
+    $observations = aerometService()->getObservations('87548 87022');
+
+    expect($observations)->toHaveCount(1)
+        ->and($observations[0]->station)->toBe('JUNIN');
+});
+
+it('returns no observations for a code none of the fir groups name, without asking ogimet at all', function () {
     expect(aerometService()->getObservations('00000'))->toBe([]);
 
     Http::assertNothingSent();
 });
 
-it('asks the SMN for every station in a group at once, not just the one requested', function () {
-    fakeAeromet();
+it('does not hit ogimet again for a station in an already-cached group', function () {
+    fakeAeromet(Http::response(ogimetFixture('ogimet-multi.txt')));
 
+    // Junín and Bariloche are both FIR EZEIZA.
     aerometService()->getObservations('87548');
-
-    Http::assertSent(fn ($request) => str_contains($request->url(), 'observacion=aeromet')
-        && str_contains($request->url(), 'operacion=consultar')
-        && str_contains($request->url(), '87548=on')
-        // A second station from the same FIR group, never asked about,
-        // confirms this is a group request and not a per-station one.
-        && str_contains($request->url(), '87641=on'));
-});
-
-it('does not hit the SMN again for a station in an already-cached group', function () {
-    fakeAeromet(Http::response(smnFixture('aeromet-multi.html')));
-
-    aerometService()->getObservations('87548');
-    aerometService()->getObservations('87692');
-    aerometService()->getObservations('87715');
+    aerometService()->getObservations('87765');
 
     Http::assertSentCount(1);
 });
 
 it('fetches only the groups the requested stations actually belong to', function () {
-    Http::fake([
-        '*observacion=aeromet*' => Http::sequence()
-            ->push(smnFixture('aeromet-junin.html'))
-            ->push(smnFixture('aeromet-junin.html')),
-    ]);
+    fakeAeromet(Http::sequence()
+        ->push(ogimetFixture('ogimet-junin.txt'))
+        ->push(ogimetFixture('ogimet-junin.txt')));
 
     // 87548 (Junín) is FIR EZEIZA; 87344 (Córdoba) is FIR CORDOBA — two
     // different groups, so this costs two requests, not one.
@@ -101,10 +93,9 @@ it('fetches only the groups the requested stations actually belong to', function
 
 it('only loses the stations of the one group that could not be reached', function () {
     Http::fake([
-        '*observacion=aeromet*' => Http::sequence()
-            ->push(smnFixture('aeromet-junin.html')) // FIR EZEIZA (87548)
-            ->push(smnFixture('challenge.html'), 403) // FIR CORDOBA (87344)
-            ->push(smnFixture('challenge.html'), 403),
+        '*ogimet.com*' => Http::sequence()
+            ->push(ogimetFixture('ogimet-junin.txt')) // FIR EZEIZA (87548)
+            ->push('', 503), // FIR CORDOBA (87344)
     ]);
 
     $observations = aerometService()->getObservations('87548 87344');
@@ -113,8 +104,8 @@ it('only loses the stations of the one group that could not be reached', functio
         ->and($observations[0]->station)->toBe('JUNIN');
 });
 
-it('fails when the SMN cannot be reached', function () {
-    fakeAeromet(Http::response(smnFixture('challenge.html'), 403));
+it('fails when ogimet cannot be reached', function () {
+    fakeAeromet(Http::response('', 503));
 
     aerometService()->getObservations('87548');
 })->throws(RuntimeException::class);
@@ -124,28 +115,27 @@ it('fails when the SMN cannot be reached', function () {
 | Stale fallback
 |--------------------------------------------------------------------------
 |
-| AEROMET has no second source the way METAR/TAF fail over to NOAA — SYNOP
-| surface observations are not relayed over OPMET — so a group that cannot
-| reach the SMN at all is ridden out by serving each station's last
-| observation fetched successfully instead of failing outright, same fix as
+| AEROMET has no second source — SYNOP surface observations are not relayed
+| over OPMET the way aerodrome reports are — so a group that cannot reach
+| OGIMET at all is ridden out by serving each station's last observation
+| fetched successfully instead of failing outright, same fix as
 | SmnPronareaService.
 |
-| A group that DOES reach the SMN falls back the same way, station by
-| station, when it simply leaves one of its own stations out ("Error: El
-| código [X] es erroneo") — confirmed live, and not distinguishable from a
-| station genuinely having nothing published, from the response alone.
+| A group that DOES reach OGIMET falls back the same way, station by
+| station, when it simply leaves one of its own stations out (NIL for that
+| hour) — confirmed live, and not distinguishable from a station genuinely
+| having nothing published, from the response alone.
 |
 */
 
-it('serves the last good observation, marked stale, when the smn cannot be reached at all', function () {
+it('serves the last good observation, marked stale, when ogimet cannot be reached at all', function () {
     // A sequence rather than two fakeAeromet() calls: Http::fake() merges
     // stubs and the first match wins, so a later fake cannot override an
     // earlier one.
     Http::fake([
-        '*observacion=aeromet*' => Http::sequence()
-            ->push(smnFixture('aeromet-junin.html'))
-            ->push(smnFixture('challenge.html'), 403)
-            ->push(smnFixture('challenge.html'), 403),
+        '*ogimet.com*' => Http::sequence()
+            ->push(ogimetFixture('ogimet-junin.txt'))
+            ->push('', 503),
     ]);
 
     aerometService()->getObservations('87548');
@@ -155,56 +145,54 @@ it('serves the last good observation, marked stale, when the smn cannot be reach
     $observations = aerometService()->getObservations('87548');
 
     expect($observations)->toHaveCount(1)
-        ->and($observations[0]->raw)->toBe('JUNIN 090/06KT 12KM 4Ci19800FT 16/07 Q1018.4')
+        ->and($observations[0]->raw)->toBe('AAXX 30174 87548 42562 50514 10181 20122 30064 40162 57032 83530 333 56160 83630=')
         ->and($observations[0]->stale)->toBeTrue();
 });
 
 it('serves a station own last good reading when it drops out of an otherwise successful group response', function () {
     Http::fake([
-        '*observacion=aeromet*' => Http::sequence()
-            ->push(smnFixture('aeromet-multi.html'))
-            ->push(smnFixture('aeromet-neuquen.html')),
+        '*ogimet.com*' => Http::sequence()
+            ->push(ogimetFixture('ogimet-multi.txt'))
+            // Second round: Junín is missing, only Bariloche answers — same
+            // as a live round dropping a station's report can look.
+            ->push(ogimetFixture('ogimet-bariloche-only.txt')),
     ]);
 
-    aerometService()->getObservations('87548 87715');
+    aerometService()->getObservations('87548 87765');
 
     Cache::forget('aeromet:0');
 
-    // The second response only carries Neuquén — Junín "erroneo"'d out of
-    // it, same as a live round does — but it still answers fresh for
-    // Neuquén and stale for Junín, in the same call.
-    $observations = aerometService()->getObservations('87548 87715');
+    $observations = aerometService()->getObservations('87548 87765');
     $byStation = collect($observations)->keyBy->station;
 
     expect($observations)->toHaveCount(2)
         ->and($byStation['JUNIN']->stale)->toBeTrue()
-        ->and($byStation['NEUQUEN']->stale)->toBeFalse();
+        ->and($byStation['BARILOCHE']->stale)->toBeFalse();
 });
 
-it('still fails when the smn cannot be reached and nothing was ever fetched', function () {
-    fakeAeromet(Http::response(smnFixture('challenge.html'), 403));
+it('still fails when ogimet cannot be reached and nothing was ever fetched', function () {
+    fakeAeromet(Http::response('', 503));
 
     aerometService()->getObservations('87548');
 })->throws(RuntimeException::class);
 
 it('warms the cache for one group without asking about any one station', function () {
     Http::fake([
-        '*observacion=aeromet*' => Http::sequence()
-            ->push(smnFixture('aeromet-multi.html'))
-            ->push(smnFixture('challenge.html'), 403)
-            ->push(smnFixture('challenge.html'), 403),
+        '*ogimet.com*' => Http::sequence()
+            ->push(ogimetFixture('ogimet-junin.txt'))
+            ->push('', 503),
     ]);
 
     aerometService()->refreshGroup(0);
 
     Http::assertSentCount(1);
 
-    // The SMN is unreachable now, but refreshGroup() already populated
+    // OGIMET is unreachable now, but refreshGroup() already populated
     // Junín's last-good entry — this still answers, marked stale.
     Cache::forget('aeromet:0');
     $observations = aerometService()->getObservations('87548');
 
-    Http::assertSentCount(3);
+    Http::assertSentCount(2);
     expect($observations)->toHaveCount(1)
         ->and($observations[0]->stale)->toBeTrue();
 });

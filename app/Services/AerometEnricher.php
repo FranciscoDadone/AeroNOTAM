@@ -10,10 +10,15 @@ use Throwable;
  * as MetarEnricher and for the same reason: the raw line is what a pilot can
  * cross-check, the explanation a convenience laid on top that must degrade
  * gracefully rather than take the whole reply down with it.
+ *
+ * SynopDecoder is the only decoder AEROMET needs: every observation's raw
+ * text is genuine SYNOP now that OgimetAerometSource is AEROMET's only
+ * source (see its own docblock for why the SMN's own compact line — a
+ * different grammar entirely — is no longer in the picture).
  */
 class AerometEnricher
 {
-    public function __construct(protected AerometDecoder $decoder) {}
+    public function __construct(protected SynopDecoder $decoder) {}
 
     /**
      * @param  array<int, AerometObservation>  $observations
@@ -27,7 +32,7 @@ class AerometEnricher
     protected function enrichOne(AerometObservation $observation): AerometObservation
     {
         try {
-            $lines = $this->decoder->explain($this->withoutStationName($observation));
+            $lines = $this->decoder->explain($observation->raw);
 
             if ($observation->phenomenonNote !== null) {
                 $lines[] = "Fenómeno: {$observation->phenomenonNote}";
@@ -39,19 +44,5 @@ class AerometEnricher
 
             return $observation;
         }
-    }
-
-    /**
-     * The line opens with the station's own name ("JUNIN 090/06KT ..."),
-     * which AerometDecoder has no use for — it is already known from
-     * $observation->station — and whose shape (one word, or several for
-     * "MAR DEL PLATA"/"AEROPARQUE J. NEWBERY") the decoder's token grammar
-     * cannot tell apart from a group it should decode.
-     */
-    protected function withoutStationName(AerometObservation $observation): string
-    {
-        $prefix = '/^'.preg_quote($observation->station, '/').'\s+/';
-
-        return preg_replace($prefix, '', $observation->raw, limit: 1) ?? $observation->raw;
     }
 }

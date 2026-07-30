@@ -148,7 +148,7 @@ abstract class SmnReportSource implements AviationReportSource
                         return;
                     }
 
-                    $raw = $this->rawTextFrom($cells->eq(1));
+                    $raw = $this->cleanText($cells->eq(1)->text());
 
                     if ($raw === '') {
                         return;
@@ -159,35 +159,12 @@ abstract class SmnReportSource implements AviationReportSource
                         'airport_name' => $airportName,
                         'issued_at' => $this->cleanText($cells->eq(0)->text()),
                         'raw' => $raw,
-                    ] + $this->extraFields($cells->eq(1));
+                    ];
                 }
             );
         });
 
         return $reports;
-    }
-
-    /**
-     * The report text out of a result cell. METAR/TAF/PRONAREA cells hold
-     * nothing but the report itself; AEROMET's also carry "Decodificado" and
-     * "Synop" links ahead of the line, so SmnAerometSource overrides this to
-     * drop them first.
-     */
-    protected function rawTextFrom(Crawler $cell): string
-    {
-        return $this->cleanText($cell->text());
-    }
-
-    /**
-     * Extra row data beyond station/airport/issued/raw. Nothing for
-     * METAR/TAF/PRONAREA; SmnAerometSource overrides this to carry the SMN's
-     * own plain-Spanish gloss of a weather phenomenon, when the cell has one.
-     *
-     * @return array<string, mixed>
-     */
-    protected function extraFields(Crawler $cell): array
-    {
-        return [];
     }
 
     /**

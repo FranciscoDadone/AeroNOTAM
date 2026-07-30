@@ -101,33 +101,44 @@ return [
         'ttl' => env('AEROMET_TTL', 600),
 
         // How long a station's own last good reading is kept around to
-        // answer with — marked stale — once it drops out of a round of the
-        // bulk fetch below. There is no second source for AEROMET the way
-        // NOAA relays METAR/TAF, so this is what stands between that and an
-        // outright failure. An hour: long enough to outlast a several-minute
-        // block, short enough that a reading this old is still saying
-        // something true about the weather.
+        // answer with — marked stale — once it drops out of a round of
+        // OgimetAerometSource's fetch. There is no second source for AEROMET
+        // the way NOAA relays METAR/TAF, so this is what stands between that
+        // and an outright failure. An hour: long enough to outlast a
+        // several-minute gap, short enough that a reading this old is still
+        // saying something true about the weather.
         'stale_ttl' => env('AEROMET_STALE_TTL', 3600),
 
-        // Each of SmnAerometSource::FIR_GROUPS's five requests, naming up to
-        // 45 stations at once, takes the legacy backend far longer than a
-        // single-station METAR/TAF query. services.smn.timeout is nowhere
-        // near enough for that, so this fetch gets its own, much longer
-        // per-request allowance.
-        'bulk_timeout' => env('AEROMET_BULK_TIMEOUT', 150),
-
         // How hard aeromet:refresh-cache retries one FIR group before moving
-        // on to the next, and how long it waits between tries. Confirmed
-        // live: a group routinely 522s — the backend timing out under its
-        // own load — on an early attempt and comes through on a later one.
-        // Lower than pronarea.refresh_attempts, and per group rather than
-        // for the whole run (see RefreshAerometCache), because each attempt
-        // here already costs up to bulk_timeout itself: at the ceiling, five
-        // groups times this many attempts times bulk_timeout is real wall
-        // time on the scheduler, not a live reply, but still not worth
-        // multiplying past what a slow backend actually needs to clear.
+        // on to the next, and how long it waits between tries. Lower than
+        // pronarea.refresh_attempts, and per group rather than for the whole
+        // run (see RefreshAerometCache), since OGIMET has shown no sign of
+        // the SMN's own sustained blocks — this only needs to ride out an
+        // isolated blip, not insist through minutes of a backend under load.
         'refresh_attempts' => env('AEROMET_REFRESH_ATTEMPTS', 3),
         'refresh_retry_seconds' => env('AEROMET_REFRESH_RETRY_SECONDS', 30),
+    ],
+
+    // AEROMET's only source — a public aggregator of the WMO's Global
+    // Telecommunication System. The SMN was tried here first for a while,
+    // but ssl.smn.gob.ar blocks every automated client regardless of which
+    // network it runs from (confirmed live), while this does not. See
+    // OgimetAerometSource.
+    'ogimet' => [
+        'base_url' => env('OGIMET_BASE_URL', 'https://www.ogimet.com'),
+
+        // Confirmed live: the whole country in one request answers in well
+        // under a second. Generous anyway, since a slow answer here still
+        // beats not answering at all.
+        'timeout' => env('OGIMET_TIMEOUT', 30),
+
+        // How far back to ask for each station's SYNOP. Confirmed live: a
+        // single hour misses stations that report on a slower cadence than
+        // hourly (out of 119, 91 answered in a 1-hour window, 117 in six) —
+        // six hours is what it takes to catch nearly all of them without
+        // serving a reading old enough to no longer describe the current
+        // weather.
+        'lookback_hours' => env('OGIMET_LOOKBACK_HOURS', 6),
     ],
 
     'smn' => [

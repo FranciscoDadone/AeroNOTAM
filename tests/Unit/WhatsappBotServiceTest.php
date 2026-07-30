@@ -568,20 +568,21 @@ it('falls back to the text path for a pronarea menu payload, since none is ever 
 |
 */
 
-it('answers with the aeromet observation for the station named, explained like a metar', function () {
+it('answers with the aeromet observation for the station named, explained via synop decoding', function () {
     fakeAeromet();
 
     $reply = bot()->reply('aeromet junin')->messages;
 
     expect($reply[0])
         ->toContain('AEROMET JUNIN')
-        ->toContain('JUNIN 090/06KT 12KM 4Ci19800FT 16/07 Q1018.4')
-        ->toContain('Viento del 090° a 6 nudos.')
-        ->toContain('Nubes: 4/8 Cirrus a 19.800 ft.')
+        ->toContain('🕐 Observación de las 30 - 17:00 UTC.')
+        ->toContain('AAXX 30174 87548')
+        ->toContain('Viento del 050° a 14 nudos.')
+        ->toContain('Presión QNH 1.016,2 hPa.')
         ->toContain('Fuente: Servicio Meteorológico Nacional');
 
-    // fakeAeromet() only stubs the AEROMET endpoint — this confirms the
-    // aerodrome/ANAC lookup path was never touched.
+    // fakeAeromet() only stubs OGIMET — this confirms the aerodrome/ANAC
+    // lookup path was never touched.
     Http::assertNotSent(fn ($request) => str_contains($request->url(), 'ais.anac.gob.ar'));
 });
 
@@ -596,17 +597,6 @@ it('resolves an aeromet station named by its anac or oaci code', function () {
     expect(bot()->reply('aeromet nin')->messages[0])->toContain('AEROMET JUNIN');
 });
 
-/**
- * The SMN's own gloss of a phenomenon ("Lluvia. Continua...") is folded in
- * as its own explanation line rather than guessed at from the abbreviation.
- */
-it('folds in the smn own gloss of a weather phenomenon', function () {
-    fakeAeromet(Http::response(smnFixture('aeromet-neuquen.html')));
-
-    expect(bot()->reply('aeromet neuquen')->messages[0])
-        ->toContain('Fenómeno: Lluvia. Continua, no congelandose, debil en el momento de la observacion.');
-});
-
 it('says so when no aeromet station is named in the message', function () {
     Http::fake();
 
@@ -616,8 +606,8 @@ it('says so when no aeromet station is named in the message', function () {
     Http::assertNothingSent();
 });
 
-it('reports a service problem when the smn cannot be reached for aeromet and nothing was cached', function () {
-    fakeAeromet(Http::response('down', 503));
+it('reports a service problem when ogimet cannot be reached and nothing was cached', function () {
+    fakeAeromet(Http::response('', 503));
 
     expect(bot()->reply('aeromet junin')->messages[0])->toContain('No pude obtener el AEROMET');
 });
@@ -627,10 +617,9 @@ it('warns when serving a stale aeromet observation instead of failing outright',
     // stubs and the first match wins, so a later fake cannot override an
     // earlier one.
     Http::fake([
-        '*observacion=aeromet*' => Http::sequence()
-            ->push(smnFixture('aeromet-junin.html'))
-            ->push(smnFixture('challenge.html'), 403)
-            ->push(smnFixture('challenge.html'), 403),
+        '*ogimet.com*' => Http::sequence()
+            ->push(ogimetFixture('ogimet-junin.txt'))
+            ->push('', 503),
     ]);
 
     bot()->reply('aeromet junin');
@@ -639,7 +628,7 @@ it('warns when serving a stale aeromet observation instead of failing outright',
 
     expect(bot()->reply('aeromet junin')->messages[0])
         ->toContain('No pude confirmar si sigue vigente')
-        ->toContain('JUNIN 090/06KT 12KM 4Ci19800FT 16/07 Q1018.4');
+        ->toContain('AAXX 30174 87548');
 });
 
 /**

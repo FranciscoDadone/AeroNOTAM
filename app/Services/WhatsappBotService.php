@@ -935,11 +935,15 @@ class WhatsappBotService
             // No second source to fail over to, so a Cloudflare block is
             // ridden out by serving the last observation fetched
             // successfully instead — said up front, same as PRONAREA, rather
-            // than left for the reader to notice on their own.
-            if ($observation->stale) {
-                $lines[] = "⚠️ No pude confirmar si sigue vigente: es la última observación que obtuve, de las {$observation->observedAt} UTC.";
-                $lines[] = '';
-            }
+            // than left for the reader to notice on their own. Either way the
+            // reader gets the observation's own date/time, not just a
+            // warning when it happens to be stale — the raw SYNOP line
+            // buries it in "DDGGiw", nothing like how plainly METAR's own
+            // "301700Z" reads.
+            $lines[] = $observation->stale
+                ? "⚠️ No pude confirmar si sigue vigente: es la última observación que obtuve, de las {$observation->observedAt} UTC."
+                : "🕐 Observación de las {$observation->observedAt} UTC.";
+            $lines[] = '';
 
             $lines[] = '```'.$observation->raw.'```';
 

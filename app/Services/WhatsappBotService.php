@@ -683,7 +683,28 @@ class WhatsappBotService
             $indicator,
             $this->enricher->enrich($notams),
             $this->airports->isClosed($indicator),
+            $this->runwayWindOffer($indicator),
         )->withMenu($this->menuFor('notam', $indicator, $from));
+    }
+
+    /**
+     * The runway-wind button to hang under an answer about this aerodrome, or
+     * null when there would be nothing behind it.
+     *
+     * Unlike the offer under a METAR — which shares a template with the watch
+     * button and therefore cannot be dropped on its own — this one stands
+     * alone, so it is only sent when it will actually answer something. That
+     * matters twice over: a button leading to "no tengo los rumbos de pista"
+     * is worse than no button, and a message carrying one is split to the
+     * smaller template budget, which would cost extra messages for nothing.
+     */
+    protected function runwayWindOffer(string $indicator): ?ReplyButton
+    {
+        $icao = $this->airports->icaoFor($indicator);
+
+        return $icao !== null && $this->runways->has($indicator)
+            ? ReplyButton::runwayWind($icao)
+            : null;
     }
 
     protected function metarReply(string $indicator, ?string $from): WhatsappReply
@@ -1578,9 +1599,13 @@ class WhatsappBotService
      * aeronautical notice would silently hide exactly the kind of detail
      * (a closure window, a contact number) the pilot needs.
      *
+     * $button rides on the last message only — see WhatsappReply::outbound() —
+     * which is where "y de paso, ¿cómo está el viento en las pistas?" belongs:
+     * after the notices, not interrupting them.
+     *
      * @param  array<int, Notam>  $notams
      */
-    protected function formatNotams(string $airportName, string $indicator, array $notams, bool $closed = false): WhatsappReply
+    protected function formatNotams(string $airportName, string $indicator, array $notams, bool $closed = false, ?ReplyButton $button = null): WhatsappReply
     {
         // A closed aerodrome usually has nothing active to report, and "no hay
         // NOTAM activos ✅" on its own reads as "está todo bien" — the opposite
@@ -1590,7 +1615,10 @@ class WhatsappBotService
         $closedNotice = $closed ? "\n⛔ *Aeródromo cerrado*" : '';
 
         if ($notams === []) {
-            return WhatsappReply::of("No hay NOTAM activos para *{$airportName}* ({$indicator}) en este momento. ✅".$closedNotice);
+            return WhatsappReply::ofMany(
+                ["No hay NOTAM activos para *{$airportName}* ({$indicator}) en este momento. ✅".$closedNotice],
+                $button,
+            );
         }
 
         $header = "✈️ *{$airportName}* ({$indicator})".$closedNotice;
@@ -1598,7 +1626,10 @@ class WhatsappBotService
 
         // Reserve room for the header and the widest plausible "(99/99) "
         // prefix, so the assembled message still fits once both are added.
-        $budget = self::MAX_MESSAGE_LENGTH - mb_strlen($header) - 12;
+        // A message that carries a button is a content template, and WhatsApp
+        // caps those far shorter than a plain one.
+        $budget = ($button === null ? self::MAX_MESSAGE_LENGTH : self::MAX_TEMPLATE_BODY_LENGTH)
+            - mb_strlen($header) - 12;
 
         $parts = [];
 
@@ -1623,7 +1654,7 @@ class WhatsappBotService
             }
         }
 
-        return WhatsappReply::ofMany($this->withHeader($header, $parts));
+        return WhatsappReply::ofMany($this->withHeader($header, $parts), $button);
     }
 
     /**

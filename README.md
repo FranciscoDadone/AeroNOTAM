@@ -290,6 +290,9 @@ un límite de viento cruzado.
 Es el paso que el METAR deja a medio camino: informa `35015G25KT` y deja al
 lector hacer la cuenta que en realidad decide dónde aterrizar.
 
+También se llega con un toque: tanto las respuestas de METAR como las de NOTAM
+llevan un botón **🛬 Viento en pista** al pie.
+
 ```
 🛬 EZEIZA / MINISTRO PISTARINI (SAEZ)
 
@@ -472,10 +475,22 @@ ventana que abrió el mensaje del propio usuario.
 
 **WhatsApp dibuja como mucho tres botones por mensaje**, y de ahí sale la forma
 que tiene todo esto. Los menús de seguimiento ya gastan los tres, así que la
-oferta **🛬 Viento en pista** viaja en el mensaje del METAR, donde había lugar:
-`TWILIO_CONTENT_SID_METAR` lleva los dos botones, y
-`TWILIO_CONTENT_SID_PISTA` lleva sólo ése, para el METAR de un aeródromo al que
-el lector ya está suscripto — ahí el botón de alta prometería algo que ya pasa.
+oferta **🛬 Viento en pista** viaja en el mensaje mismo, donde había lugar:
+
+- `TWILIO_CONTENT_SID_METAR` lleva **dos** botones, 🔔 Avisarme y 🛬 Viento en
+  pista, y va bajo cada METAR.
+- `TWILIO_CONTENT_SID_PISTA` lleva sólo el 🛬. Es el que va bajo el último
+  mensaje de una respuesta de NOTAM, y también bajo un METAR de un aeródromo al
+  que el lector ya está suscripto — ahí el botón de alta prometería algo que ya
+  pasa.
+
+Bajo los NOTAM el botón se ofrece **sólo si hay rumbos de pista cargados**, al
+revés que bajo el METAR. Ahí no se puede: los dos botones comparten plantilla y
+las acciones de una plantilla quedan fijas al registrarla. Acá el botón está
+solo, así que se manda únicamente cuando va a contestar algo — un botón que
+lleva a _"no tengo los rumbos de pista"_ es peor que ningún botón, y además un
+mensaje con botón se parte al presupuesto más corto de las plantillas, que
+costaría mensajes de más para nada.
 
 **Sin esos SID el bot funciona igual.** Los mensajes salen en texto plano con el
 comando escrito equivalente al pie (_"Respondeme «avisame SAEZ»"_). El botón

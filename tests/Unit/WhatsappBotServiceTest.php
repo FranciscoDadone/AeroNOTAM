@@ -1661,3 +1661,97 @@ it('reports a northerly wind as 360 degrees, not 000', function () {
     expect(implode("\n", bot()->reply('viento cruzado en Ezeiza')->messages))
         ->toContain('Viento del 360° (N) a 12 kt');
 });
+
+/*
+|--------------------------------------------------------------------------
+| El botón de viento en pista bajo los NOTAM
+|--------------------------------------------------------------------------
+|
+| Same offer as under a METAR, in the one place a NOTAM reply had room for it:
+| its own last message. The follow-up menu is already at the three quick
+| replies WhatsApp will render.
+|
+*/
+
+function seedAeroparqueRunways(): void
+{
+    foreach (['13' => 124, '31' => 304] as $designator => $heading) {
+        Runway::create([
+            'anac_code' => 'AER',
+            'designator' => $designator,
+            'heading_true' => $heading,
+            'is_closed' => false,
+            'source' => 'ourairports',
+        ]);
+    }
+}
+
+it('offers the runway wind under a notam reply', function () {
+    fakeAnac();
+    seedAeroparqueRunways();
+    config(['services.twilio.content_sid_pista' => 'HXpista']);
+
+    $reply = bot()->reply('notams aeroparque', PHONE);
+
+    expect($reply->button->contentSid)->toBe('HXpista')
+        ->and($reply->button->payloadValue)->toBe('SABE');
+});
+
+/**
+ * The offer stands alone here — unlike under a METAR, where it shares a
+ * template with the watch button and cannot be dropped by itself — so it is
+ * only sent when there is something behind it.
+ */
+it('does not offer the runway wind for an aerodrome with no runways on file', function () {
+    fakeAnac();
+    config(['services.twilio.content_sid_pista' => 'HXpista']);
+
+    expect(bot()->reply('notams aeroparque', PHONE)->button)->toBeNull();
+});
+
+it('offers the runway wind even when there are no notams to report', function () {
+    fakeAnac(Http::response('error', 500));
+    seedAeroparqueRunways();
+    config(['services.twilio.content_sid_pista' => 'HXpista']);
+
+    $reply = bot()->reply('notams aeroparque', PHONE);
+
+    expect($reply->messages[0])->toContain('No hay NOTAM activos')
+        ->and($reply->button->contentSid)->toBe('HXpista');
+});
+
+/**
+ * Three NOTAMs are three messages. Repeating the button on each would read as
+ * three separate offers rather than one.
+ */
+it('puts the runway-wind button on the last notam message only', function () {
+    fakeAnac();
+    seedAeroparqueRunways();
+    config(['services.twilio.content_sid_pista' => 'HXpista']);
+
+    $outbound = bot()->reply('notams aeroparque', PHONE)->outbound();
+
+    expect(count($outbound))->toBe(3)
+        ->and($outbound[0][1])->toBeNull()
+        ->and($outbound[1][1])->toBeNull()
+        ->and($outbound[2][1])->not->toBeNull();
+});
+
+/**
+ * A message carrying a button is a content template, and WhatsApp caps those
+ * at 1024 characters rather than 1600. Splitting to the plain-text budget
+ * would produce a message Twilio rejects outright.
+ */
+it('splits a notam that carries a button to the smaller template budget', function () {
+    $long = str_repeat('OBST CRANE ERECTED NEAR THR RWY 13 HGT 45M AGL. ', 80);
+
+    fakeAnac(Http::response(pibWith($long)));
+    seedAeroparqueRunways();
+    config(['services.twilio.content_sid_pista' => 'HXpista']);
+
+    $reply = bot()->reply('notams aeroparque', PHONE);
+
+    foreach ($reply->messages as $message) {
+        expect(mb_strlen($message))->toBeLessThanOrEqual(1024);
+    }
+});

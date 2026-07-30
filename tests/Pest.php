@@ -300,6 +300,7 @@ function withButtonTemplates(): void
     config([
         'services.twilio.content_sid_metar' => 'HXsub',
         'services.twilio.content_sid_alert' => 'HXalert',
+        'services.twilio.content_sid_aeromet' => 'HXaeromet',
         'services.twilio.content_sid_menu_notam' => 'HXmenunotam',
         'services.twilio.content_sid_menu_metar' => 'HXmenumetar',
         'services.twilio.content_sid_menu_taf' => 'HXmenutaf',

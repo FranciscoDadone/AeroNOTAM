@@ -35,4 +35,4 @@ Schedule::command('pronarea:refresh-cache')
 // Same cadence as metar:watch, for the same reason: it lines up with
 // aeromet.ttl, so each of AerometStationResolver::FIR_GROUPS costs at most
 // one request however many of its stations get asked about in between.
-Schedule::command('aeromet:refresh-cache')->everyTenMinutes()->withoutOverlapping();
+Schedule::command('aeromet:refresh-cache')->everyFiveMinutes()->withoutOverlapping();

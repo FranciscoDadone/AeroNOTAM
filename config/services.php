@@ -211,14 +211,19 @@ return [
         'token' => env('TWILIO_AUTH_TOKEN'),
         'whatsapp_from' => env('TWILIO_WHATSAPP_FROM'),
 
-        // Content templates for the two messages that carry a button. WhatsApp
-        // has no free-text way to send one, so these are created once per Twilio
+        // Content templates for the messages that carry a button. WhatsApp has
+        // no free-text way to send one, so these are created once per Twilio
         // account with `php artisan whatsapp:content-templates` and their SIDs
-        // pasted here. Left blank, both messages still go out as plain text with
-        // the equivalent written command — the button is a convenience on top of
-        // an interface that works without it.
+        // pasted here. Left blank, every message still goes out as plain text
+        // with the equivalent written command — the button is a convenience on
+        // top of an interface that works without it.
         'content_sid_metar' => env('TWILIO_CONTENT_SID_METAR'),
         'content_sid_alert' => env('TWILIO_CONTENT_SID_ALERT'),
+
+        // Offered under a METAR that came back empty, for the aerodromes
+        // AEROMET also covers under the same name — a next thing to try
+        // instead of a dead end.
+        'content_sid_aeromet' => env('TWILIO_CONTENT_SID_AEROMET'),
 
         // One menu template per topic, offering the other three for the same
         // aerodrome. There are four rather than one because a quick-reply

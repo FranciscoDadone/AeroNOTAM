@@ -11,15 +11,16 @@ use Twilio\Rest\Content\V1\ContentModels;
  * Registers the content templates that let a WhatsApp message carry buttons,
  * and prints their SIDs.
  *
- * Six of them: subscribe/unsubscribe under a METAR, and one follow-up menu
- * per question topic (NOTAM, METAR, TAF, crepúsculo) offering the other
- * three. PRONAREA has no template of its own: it is not offered as a
- * quick-reply action, by design (see ReplyButton::MENU_OFFERS). There is one
- * menu template per topic rather than a single shared one because a
- * quick-reply template's captions and action ids are fixed when it is
- * registered — the only thing that can vary at send time is the aerodrome,
- * substituted into {{2}} — so a menu that never re-offers the topic it
- * follows needs its own template per topic.
+ * Seven of them: subscribe/unsubscribe under a METAR, "Consultar AEROMET"
+ * under one that came back empty, and one follow-up menu per question topic
+ * (NOTAM, METAR, TAF, crepúsculo) offering the other three. PRONAREA has no
+ * template of its own: it is not offered as a quick-reply action, by design
+ * (see ReplyButton::MENU_OFFERS). There is one menu template per topic
+ * rather than a single shared one because a quick-reply template's captions
+ * and action ids are fixed when it is registered — the only thing that can
+ * vary at send time is the aerodrome, substituted into {{2}} — so a menu
+ * that never re-offers the topic it follows needs its own template per
+ * topic.
  *
  * Run once per Twilio account, by hand — the templates are account-level
  * resources with no natural key to upsert against, so re-running this creates
@@ -138,6 +139,17 @@ class CreateContentTemplates extends Command
                 'sample' => 'SAEZ',
                 'actions' => [
                     ['title' => '🔕 Dar de baja', 'id' => 'unsub:{{2}}'],
+                ],
+            ],
+            'TWILIO_CONTENT_SID_AEROMET' => [
+                'friendly_name' => 'notams_metar_aeromet',
+                'body_sample' => 'No hay METAR publicado para *JUNÍN* (SAAJ) en este momento.',
+                'sample' => '87548',
+                'actions' => [
+                    // The WMO/OMM code, not the aerodrome's own — AEROMET
+                    // indexes by its own station list, and the tap goes
+                    // straight to AerometService with it (BUTTON_AEROMET).
+                    ['title' => 'Consultar AEROMET', 'id' => 'aeromet:{{2}}'],
                 ],
             ],
             'TWILIO_CONTENT_SID_MENU_NOTAM' => [

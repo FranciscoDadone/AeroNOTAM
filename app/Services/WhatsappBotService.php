@@ -178,6 +178,14 @@ class WhatsappBotService
     protected const BUTTON_ASK = '/^ask:(notam|metar|taf|crepusculo):([A-Z]{3,4})$/';
 
     /**
+     * A tap on the "Consultar AEROMET" offer under an empty METAR. The WMO/OMM
+     * code rides on the button itself, so the tap needs no station-name
+     * matching — it goes straight to AerometService with the code AEROMET was
+     * already known to answer for.
+     */
+    protected const BUTTON_AEROMET = '/^aeromet:(\d{5})$/';
+
+    /**
      * What the last call to reply() made of the message. Kept aside instead of
      * being returned with the reply because only the message log cares.
      */
@@ -312,6 +320,12 @@ class WhatsappBotService
                 'crepusculo' => $this->sunReplyFor($indicator, $from),
                 default => $this->notamReply($indicator, $from),
             };
+        }
+
+        if (preg_match(self::BUTTON_AEROMET, $payload, $m) === 1) {
+            $this->context->topic = 'aeromet';
+
+            return $this->aerometReplyForCode($m[1]);
         }
 
         return null;
@@ -878,6 +892,16 @@ class WhatsappBotService
             );
         }
 
+        return $this->aerometReplyForCode($code);
+    }
+
+    /**
+     * Answers for a WMO/OMM code already known to be an AEROMET station —
+     * either resolved from free text by aerometReply(), or read straight off
+     * a tapped BUTTON_AEROMET payload.
+     */
+    protected function aerometReplyForCode(string $code): WhatsappReply
+    {
         try {
             $observations = $this->aeromet->getObservations($code);
         } catch (\Throwable $e) {
@@ -1233,7 +1257,12 @@ class WhatsappBotService
         [$button, $note] = $offer;
 
         if ($metars === []) {
-            return WhatsappReply::of("No hay METAR publicado para *{$airportName}* ({$icao}) en este momento.");
+            $aerometCode = $this->aerometStations->codeForName($airportName);
+
+            return WhatsappReply::ofMany(
+                ["No hay METAR publicado para *{$airportName}* ({$icao}) en este momento."],
+                $aerometCode === null ? null : ReplyButton::aeromet($aerometCode, $airportName),
+            );
         }
 
         $header = "🌦️ *{$airportName}* ({$icao})";

@@ -59,6 +59,21 @@ final readonly class ReplyButton
     }
 
     /**
+     * "No METAR here, but AEROMET might have something." Offered under a METAR
+     * that came back empty, for the aerodromes AEROMET also covers under the
+     * same name — no promise the tap will find anything either, just a next
+     * thing to try instead of a dead end.
+     */
+    public static function aeromet(string $code, string $stationName): self
+    {
+        return new self(
+            contentSid: (string) config('services.twilio.content_sid_aeromet'),
+            payloadValue: $code,
+            fallbackHint: "_Respondeme «aeromet {$stationName}» y te paso lo que tenga el SMN de esa estación._",
+        );
+    }
+
+    /**
      * "Want anything else about this aerodrome?" — one button offering one of
      * the other three topics.
      *

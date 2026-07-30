@@ -8,24 +8,24 @@ use App\Services\WhatsappBotService;
  * reads them back lives in WhatsappBotService — nothing at runtime ties the
  * two together, so this is the guardrail against them drifting apart.
  */
-function menuButtonAskRegex(): string
+function botConstant(string $name): string
 {
-    return (new ReflectionClass(WhatsappBotService::class))->getConstant('BUTTON_ASK');
+    return (new ReflectionClass(WhatsappBotService::class))->getConstant($name);
 }
 
 it('registers action ids the bot knows how to read', function () {
-    $regex = menuButtonAskRegex();
+    $askRegex = botConstant('BUTTON_ASK');
+    $aerometRegex = botConstant('BUTTON_AEROMET');
 
     foreach ((new CreateContentTemplates)->templates() as $template) {
         foreach ($template['actions'] as $action) {
-            $id = str_replace('{{2}}', 'SAEZ', $action['id']);
-
-            if (! str_starts_with($id, 'ask:')) {
-                // sub:/unsub: have their own, already-tested regexes.
-                continue;
+            if (str_starts_with($action['id'], 'ask:')) {
+                expect(preg_match($askRegex, str_replace('{{2}}', 'SAEZ', $action['id'])))->toBe(1);
+            } elseif (str_starts_with($action['id'], 'aeromet:')) {
+                expect(preg_match($aerometRegex, str_replace('{{2}}', '87548', $action['id'])))->toBe(1);
             }
 
-            expect(preg_match($regex, $id))->toBe(1);
+            // sub:/unsub: have their own, already-tested regexes.
         }
     }
 });

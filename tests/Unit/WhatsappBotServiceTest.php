@@ -293,6 +293,36 @@ it('says so when there is no observation published', function () {
     expect(bot()->reply('metar eze')->messages[0])->toContain('No hay METAR publicado');
 });
 
+/**
+ * JUNÍN (SAAJ) is also an AEROMET station under the same name — see
+ * AerometStationResolver::STATIONS — so an empty METAR for it offers a way
+ * to try the SMN's wider network instead of a dead end.
+ */
+it('offers to check AEROMET under a metar that came back empty', function () {
+    fakeAnac();
+    fakeMetar(Http::response(smnFixture('metar-empty.html')));
+    config(['services.twilio.content_sid_aeromet' => 'HXaeromet']);
+
+    $reply = bot()->reply('metar junin');
+
+    expect($reply->button)->not->toBeNull()
+        ->and($reply->button->contentSid)->toBe('HXaeromet')
+        ->and($reply->button->payloadValue)->toBe('87548');
+});
+
+/**
+ * EZEIZA has no entry of its own in AEROMET's 119-station list (it is
+ * covered by neighbouring stations instead), so there is nothing honest to
+ * offer and no button rides on the message.
+ */
+it('does not offer AEROMET when the aerodrome is not one of its stations', function () {
+    fakeAnac();
+    fakeMetar(Http::response(smnFixture('metar-empty.html')));
+    config(['services.twilio.content_sid_aeromet' => 'HXaeromet']);
+
+    expect(bot()->reply('metar eze')->button)->toBeNull();
+});
+
 it('offers notams, metar and taf in the help text', function () {
     fakeAnac();
 
@@ -1367,6 +1397,19 @@ it('names the cities it has when a tapped aerodrome has no sun table', function 
         ->toContain('SANTA ROSA');
 
     Http::assertNothingSent();
+});
+
+/**
+ * The WMO/OMM code rides on the "Consultar AEROMET" button itself, so the tap
+ * needs no station-name matching — the caption proves that, the same way the
+ * BUTTON_ASK tests above prove theirs.
+ */
+it('answers a tapped Consultar AEROMET button without any station matching', function () {
+    fakeAeromet();
+
+    $reply = bot()->reply('Consultar AEROMET', PHONE, 'aeromet:87548')->messages;
+
+    expect(implode(' ', $reply))->toContain('AEROMET JUNIN');
 });
 
 it('falls back to the text path when a menu payload names an unknown topic', function () {

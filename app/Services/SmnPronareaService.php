@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\DataObjects\PronareaForecast;
+use App\Models\PronareaBulletin;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -32,9 +33,13 @@ use Throwable;
  * OPMET — it is an SMN-only aeronautical product, and the SMN's own page
  * warns it 502s under load. So instead of failing over to another publisher
  * when it cannot be reached, this keeps the last bulletin fetched
- * successfully and serves that — marked stale — rather than leaving the
- * question unanswered. RefreshPronareaCache keeps that cache warm from the
- * scheduler so a WhatsApp reply is never the first thing to try the SMN.
+ * successfully in PronareaBulletin — one row per FIR, always overwritten —
+ * and serves that — marked stale — rather than leaving the question
+ * unanswered. A database row rather than the generic cache store, since it is
+ * meant to survive a Cache::flush() aimed at everything else the application
+ * caches, and to always hold exactly the latest bulletin rather than expire
+ * on a TTL. RefreshPronareaCache keeps it warm from the scheduler so a
+ * WhatsApp reply is never the first thing to try the SMN.
  */
 class SmnPronareaService
 {
@@ -92,7 +97,7 @@ class SmnPronareaService
         try {
             $raw = $this->fetchRaw($fir);
         } catch (Throwable $e) {
-            $lastGood = Cache::get($this->lastGoodKey($fir));
+            $lastGood = $this->lastGood($fir);
 
             if ($lastGood !== null) {
                 report($e);
@@ -103,13 +108,12 @@ class SmnPronareaService
             throw $e;
         }
 
-        $entry = [
-            'raw' => $raw,
-            'fetched_at' => CarbonImmutable::now('UTC')->toIso8601String(),
-        ];
+        $fetchedAt = CarbonImmutable::now('UTC');
+        $entry = ['raw' => $raw, 'fetched_at' => $fetchedAt->toIso8601String()];
 
         Cache::put($this->freshKey($fir), $entry, $this->ttl);
-        Cache::put($this->lastGoodKey($fir), $entry, $this->staleTtl);
+
+        PronareaBulletin::updateOrCreate(['fir' => $fir], ['raw' => $raw, 'fetched_at' => $fetchedAt]);
 
         return $this->hydrate($fir, $entry, stale: false);
     }
@@ -132,9 +136,26 @@ class SmnPronareaService
         return "pronarea:{$fir}";
     }
 
-    protected function lastGoodKey(string $fir): string
+    /**
+     * A FIR's own last bulletin, or null when there has never been one — or
+     * it is older than staleTtl, which counts as the same thing here: a
+     * bulletin old enough to no longer say anything true about the forecast
+     * is no better than not having one.
+     *
+     * @return array{raw: string, fetched_at: string}|null
+     */
+    protected function lastGood(string $fir): ?array
     {
-        return "pronarea:last_good:{$fir}";
+        $row = PronareaBulletin::query()
+            ->where('fir', $fir)
+            ->where('fetched_at', '>=', CarbonImmutable::now('UTC')->subSeconds($this->staleTtl))
+            ->first();
+
+        if ($row === null) {
+            return null;
+        }
+
+        return ['raw' => $row->raw, 'fetched_at' => $row->fetched_at->toIso8601String()];
     }
 
     /**

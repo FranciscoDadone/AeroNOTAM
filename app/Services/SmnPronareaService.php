@@ -57,6 +57,8 @@ class SmnPronareaService
 
     protected int $attempts;
 
+    protected int $timeout;
+
     protected int $ttl;
 
     protected int $staleTtl;
@@ -65,6 +67,7 @@ class SmnPronareaService
     {
         $this->baseUrl = rtrim(config('services.smn.base_url'), '/');
         $this->attempts = (int) config('services.smn.attempts');
+        $this->timeout = (int) config('services.smn.timeout');
         $this->ttl = (int) config('services.pronarea.ttl');
         $this->staleTtl = (int) config('services.pronarea.stale_ttl');
     }
@@ -157,7 +160,7 @@ class SmnPronareaService
         $lastStatus = 0;
 
         for ($attempt = 1; $attempt <= $this->attempts; $attempt++) {
-            $response = Http::timeout(15)
+            $response = Http::timeout($this->timeout)
                 ->withHeaders([
                     'User-Agent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
                     'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',

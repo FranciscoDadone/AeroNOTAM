@@ -26,10 +26,13 @@ abstract class SmnReportSource implements AviationReportSource
 
     protected int $attempts;
 
+    protected int $timeout;
+
     public function __construct()
     {
         $this->baseUrl = rtrim(config('services.smn.base_url'), '/');
         $this->attempts = (int) config('services.smn.attempts');
+        $this->timeout = (int) config('services.smn.timeout');
     }
 
     public function name(): string
@@ -76,12 +79,12 @@ abstract class SmnReportSource implements AviationReportSource
      *
      * @param  array<string, string>  $query
      */
-    protected function get(array $query): string
+    protected function get(array $query, ?int $timeout = null): string
     {
         $lastStatus = 0;
 
         for ($attempt = 1; $attempt <= $this->attempts; $attempt++) {
-            $response = Http::timeout(15)
+            $response = Http::timeout($timeout ?? $this->timeout)
                 ->withHeaders([
                     'User-Agent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
                     'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -145,7 +148,7 @@ abstract class SmnReportSource implements AviationReportSource
                         return;
                     }
 
-                    $raw = $this->cleanText($cells->eq(1)->text());
+                    $raw = $this->rawTextFrom($cells->eq(1));
 
                     if ($raw === '') {
                         return;
@@ -156,12 +159,35 @@ abstract class SmnReportSource implements AviationReportSource
                         'airport_name' => $airportName,
                         'issued_at' => $this->cleanText($cells->eq(0)->text()),
                         'raw' => $raw,
-                    ];
+                    ] + $this->extraFields($cells->eq(1));
                 }
             );
         });
 
         return $reports;
+    }
+
+    /**
+     * The report text out of a result cell. METAR/TAF/PRONAREA cells hold
+     * nothing but the report itself; AEROMET's also carry "Decodificado" and
+     * "Synop" links ahead of the line, so SmnAerometSource overrides this to
+     * drop them first.
+     */
+    protected function rawTextFrom(Crawler $cell): string
+    {
+        return $this->cleanText($cell->text());
+    }
+
+    /**
+     * Extra row data beyond station/airport/issued/raw. Nothing for
+     * METAR/TAF/PRONAREA; SmnAerometSource overrides this to carry the SMN's
+     * own plain-Spanish gloss of a weather phenomenon, when the cell has one.
+     *
+     * @return array<string, mixed>
+     */
+    protected function extraFields(Crawler $cell): array
+    {
+        return [];
     }
 
     /**

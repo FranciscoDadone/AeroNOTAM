@@ -125,6 +125,18 @@ function fakePronarea(mixed $response = null): void
 }
 
 /**
+ * Stub AEROMET's query on the same legacy SMN screen METAR/TAF use, keyed by
+ * WMO/OMM code rather than ICAO. No second host to fake alongside it, same
+ * reasoning as fakePronarea(): AEROMET has no NOAA-relayed equivalent either.
+ */
+function fakeAeromet(mixed $response = null): void
+{
+    Http::fake([
+        '*observacion=aeromet*' => $response ?? Http::response(smnFixture('aeromet-junin.html')),
+    ]);
+}
+
+/**
  * HTML captured verbatim from hidro.gov.ar — the SHN's sun table for Santa Rosa,
  * July 2026, the whole month in one page. Same reasoning as the other fixtures:
  * it is what tells us when the SHN rearranges its markup, and the failure mode

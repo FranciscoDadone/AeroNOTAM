@@ -3,9 +3,11 @@
 namespace App\Providers;
 
 use App\Contracts\WhatsappSender;
+use App\Services\AerometService;
 use App\Services\MetarService;
 use App\Services\NoaaMetarSource;
 use App\Services\NoaaTafSource;
+use App\Services\SmnAerometSource;
 use App\Services\SmnMetarSource;
 use App\Services\SmnTafSource;
 use App\Services\TafService;
@@ -37,6 +39,13 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(TafService::class, fn ($app) => new TafService([
             $app->make(SmnTafSource::class),
             $app->make(NoaaTafSource::class),
+        ]));
+
+        // Just the SMN: AEROMET has no NOAA-relayed equivalent, since SYNOP
+        // surface observations are not exchanged over OPMET the way aerodrome
+        // reports are.
+        $this->app->singleton(AerometService::class, fn ($app) => new AerometService([
+            $app->make(SmnAerometSource::class),
         ]));
 
         $this->app->bind(AdminMetrics::class, fn () => new AdminMetrics(

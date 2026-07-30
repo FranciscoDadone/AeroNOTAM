@@ -31,3 +31,12 @@ Schedule::command('pronarea:refresh-cache')
     ->cron('15 3,9,15,21 * * *')
     ->timezone('UTC')
     ->withoutOverlapping();
+
+// Same cadence as metar:watch, for the same reason: it lines up with
+// aeromet.ttl, so each of SmnAerometSource::FIR_GROUPS costs at most one
+// request however many of its stations get asked about in between.
+// withoutOverlapping matters more here than for any other command in this
+// file — one group's fetch can take up to two minutes (see SmnAerometSource),
+// and this retries every one of the five, so a run can run long enough that
+// it must not still be in flight when the next one starts.
+Schedule::command('aeromet:refresh-cache')->everyTenMinutes()->withoutOverlapping();

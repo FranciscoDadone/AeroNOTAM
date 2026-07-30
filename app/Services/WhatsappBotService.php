@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Ai\Agents\AirportMatcherAgent;
+use App\DataObjects\AerometObservation;
 use App\DataObjects\Metar;
 use App\DataObjects\Notam;
 use App\DataObjects\PronareaForecast;
@@ -13,6 +14,7 @@ use App\DataObjects\SunTimes;
 use App\DataObjects\Taf;
 use App\DataObjects\WhatsappReply;
 use App\Models\MetarSubscription;
+use App\Support\AerometStationResolver;
 use App\Support\AirportResolver;
 use App\Support\PronareaFirResolver;
 use App\Support\SunCityResolver;
@@ -106,6 +108,19 @@ class WhatsappBotService
     ];
 
     /**
+     * Words that ask for AEROMET, the SMN's wider observation network (it
+     * also covers towns with no aerodrome — Azul, Ceres, Chepes).
+     *
+     * Checked alongside PRONAREA, for the same reason: nothing here is a
+     * standing condition to watch, so it must not fall into the subscribe
+     * keywords, and it names its own station rather than an ANAC aerodrome,
+     * so it must not reach matchIndicator() either.
+     */
+    protected const AEROMET_KEYWORDS = [
+        'aeromet',
+    ];
+
+    /**
      * How the SHN's month names are spelled in ordinary text, for a question
      * like "crepusculo en salta el 15 de agosto". Accent-stripped, since the
      * message reaching this map already went through Str::ascii().
@@ -180,6 +195,9 @@ class WhatsappBotService
         protected SunCityResolver $sunCities,
         protected SmnPronareaService $pronarea,
         protected PronareaFirResolver $pronareaFirs,
+        protected AerometService $aeromet,
+        protected AerometEnricher $aerometEnricher,
+        protected AerometStationResolver $aerometStations,
     ) {
         $this->context = new ReplyContext;
     }
@@ -215,6 +233,13 @@ class WhatsappBotService
         // indicator matching below.
         if ($topic === 'crepusculo') {
             return $this->sunReply($message, $from);
+        }
+
+        // Resolves an AEROMET station, which is not always an aerodrome
+        // either (Azul, Ceres, Chepes have none), so this too never reaches
+        // the indicator matching below.
+        if ($topic === 'aeromet') {
+            return $this->aerometReply($message);
         }
 
         if (in_array($topic, ['list', 'subscribe', 'unsubscribe'], true)) {
@@ -310,10 +335,11 @@ class WhatsappBotService
      * knows what they want, and "hay notams para mañana en EZE" must not be
      * answered with a forecast just because it mentions tomorrow.
      *
-     * PRONAREA is checked right after the sun, and for the same two reasons:
-     * it has nothing to watch either (a FIR's current bulletin is not a
-     * standing condition to subscribe to), and "pronóstico de área" contains
-     * "pronostico", which alone reads as a TAF request.
+     * PRONAREA and AEROMET are checked right after the sun, and for the same
+     * two reasons: neither has anything to watch (a FIR's current bulletin
+     * and a station's current observation are not standing conditions to
+     * subscribe to), and PRONAREA's keywords overlap with a TAF word the same
+     * way the sun's overlap with one.
      */
     protected function topic(string $message): string
     {
@@ -322,6 +348,7 @@ class WhatsappBotService
         return match (true) {
             $this->mentions($normalized, self::SUN_KEYWORDS) => 'crepusculo',
             $this->mentions($normalized, self::PRONAREA_KEYWORDS) => 'pronarea',
+            $this->mentions($normalized, self::AEROMET_KEYWORDS) => 'aeromet',
             $this->mentions($normalized, self::LIST_KEYWORDS) => 'list',
             $this->mentions($normalized, self::UNSUBSCRIBE_KEYWORDS) => 'unsubscribe',
             $this->mentions($normalized, self::SUBSCRIBE_KEYWORDS) => 'subscribe',
@@ -825,6 +852,115 @@ class WhatsappBotService
         $lines[] = $this->sourceCredit(false);
 
         $parts = $this->splitToFit(implode("\n", $lines), $budget);
+
+        return WhatsappReply::ofMany($this->withHeader($header, $parts));
+    }
+
+    /**
+     * AEROMET is queried by station name rather than by ANAC aerodrome — its
+     * network is wider than the aerodromes AirportResolver knows, covering
+     * towns with no aerodrome at all — so this resolves straight from the
+     * message text via AerometStationResolver instead of matchIndicator().
+     *
+     * A message naming a station by its ANAC or OACI code instead of its name
+     * ("aeromet nin" for Junín) never matches that way, so it falls back to
+     * AirportResolver's own resolution and bridges the aerodrome it finds
+     * back into AEROMET's station list.
+     */
+    protected function aerometReply(string $message): WhatsappReply
+    {
+        $code = $this->aerometStations->codeFromText($message)
+            ?? $this->aerometCodeFromAerodrome($message);
+
+        if ($code === null) {
+            return WhatsappReply::of(
+                'No encontré ninguna estación AEROMET en tu mensaje. Probá con: _"aeromet junin"_.'
+            );
+        }
+
+        try {
+            $observations = $this->aeromet->getObservations($code);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return WhatsappReply::of('No pude obtener el AEROMET del SMN en este momento. Probá de nuevo en unos minutos.');
+        }
+
+        return $this->formatAeromet(
+            $this->aerometStations->nameFor($code),
+            $this->aerometEnricher->enrich($observations),
+        );
+    }
+
+    /**
+     * The AEROMET code for whatever aerodrome AirportResolver finds in the
+     * message, when it names one AEROMET also covers under the same name.
+     */
+    protected function aerometCodeFromAerodrome(string $message): ?string
+    {
+        $anacCode = $this->airports->matchFromText($message);
+
+        if ($anacCode === null) {
+            return null;
+        }
+
+        $name = $this->airports->nameFor($anacCode);
+
+        return $name === null ? null : $this->aerometStations->codeForName($name);
+    }
+
+    /**
+     * Same shape as formatMetars: the raw line first, verbatim, then the
+     * plain-Spanish explanation underneath. No follow-up menu, same reasoning
+     * as PRONAREA — there is nothing else to naturally offer about a station
+     * yet.
+     *
+     * @param  array<int, AerometObservation>  $observations
+     */
+    protected function formatAeromet(string $stationName, array $observations): WhatsappReply
+    {
+        if ($observations === []) {
+            return WhatsappReply::of("No hay AEROMET publicado para *{$stationName}* en este momento.");
+        }
+
+        $header = "🌡️ *AEROMET {$stationName}*";
+        $total = count($observations);
+        $budget = self::MAX_MESSAGE_LENGTH - mb_strlen($header) - 12;
+
+        $parts = [];
+
+        foreach ($observations as $i => $observation) {
+            $lines = [];
+
+            // No second source to fail over to, so a Cloudflare block is
+            // ridden out by serving the last observation fetched
+            // successfully instead — said up front, same as PRONAREA, rather
+            // than left for the reader to notice on their own.
+            if ($observation->stale) {
+                $lines[] = "⚠️ No pude confirmar si sigue vigente: es la última observación que obtuve, de las {$observation->observedAt} UTC.";
+                $lines[] = '';
+            }
+
+            $lines[] = '```'.$observation->raw.'```';
+
+            if ($observation->explanation !== []) {
+                $lines[] = '';
+                $lines[] = '📋 *Qué dice*';
+
+                foreach ($observation->explanation as $line) {
+                    $lines[] = "• {$line}";
+                }
+            }
+
+            if ($i === $total - 1) {
+                $lines[] = '';
+                $lines[] = $this->sourceCredit(false);
+            }
+
+            foreach ($this->splitToFit(implode("\n", $lines), $budget) as $part) {
+                $parts[] = $part;
+            }
+        }
 
         return WhatsappReply::ofMany($this->withHeader($header, $parts));
     }
@@ -1381,6 +1517,8 @@ class WhatsappBotService
             .'Y si lo que te interesa es cómo va a estar, pedime el TAF: _"taf EZE"_ o _"pronóstico de Aeroparque"_.'
             ."\n\n"
             .'Para el pronóstico de área de toda la FIR, pedime el PRONAREA: _"pronarea EZE"_.'
+            ."\n\n"
+            .'El AEROMET del SMN cubre más estaciones que el METAR, incluso ciudades sin aeródromo: _"aeromet junin"_.'
             ."\n\n"
             .'También puedo avisarte cuando el clima cambie: _"avisame EZE"_. Con _"mis alertas"_ ves las que tenés activas.'
             ."\n\n"

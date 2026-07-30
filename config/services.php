@@ -95,6 +95,41 @@ return [
         'ttl' => env('TAF_TTL', 1800),
     ],
 
+    'aeromet' => [
+        // Same cadence as METAR — AEROMET is a SYNOP-derived surface
+        // observation, issued hourly like an ordinary METAR.
+        'ttl' => env('AEROMET_TTL', 600),
+
+        // How long a station's own last good reading is kept around to
+        // answer with — marked stale — once it drops out of a round of the
+        // bulk fetch below. There is no second source for AEROMET the way
+        // NOAA relays METAR/TAF, so this is what stands between that and an
+        // outright failure. An hour: long enough to outlast a several-minute
+        // block, short enough that a reading this old is still saying
+        // something true about the weather.
+        'stale_ttl' => env('AEROMET_STALE_TTL', 3600),
+
+        // Each of SmnAerometSource::FIR_GROUPS's five requests, naming up to
+        // 45 stations at once, takes the legacy backend far longer than a
+        // single-station METAR/TAF query. services.smn.timeout is nowhere
+        // near enough for that, so this fetch gets its own, much longer
+        // per-request allowance.
+        'bulk_timeout' => env('AEROMET_BULK_TIMEOUT', 150),
+
+        // How hard aeromet:refresh-cache retries one FIR group before moving
+        // on to the next, and how long it waits between tries. Confirmed
+        // live: a group routinely 522s — the backend timing out under its
+        // own load — on an early attempt and comes through on a later one.
+        // Lower than pronarea.refresh_attempts, and per group rather than
+        // for the whole run (see RefreshAerometCache), because each attempt
+        // here already costs up to bulk_timeout itself: at the ceiling, five
+        // groups times this many attempts times bulk_timeout is real wall
+        // time on the scheduler, not a live reply, but still not worth
+        // multiplying past what a slow backend actually needs to clear.
+        'refresh_attempts' => env('AEROMET_REFRESH_ATTEMPTS', 3),
+        'refresh_retry_seconds' => env('AEROMET_REFRESH_RETRY_SECONDS', 30),
+    ],
+
     'smn' => [
         // www.smn.gob.ar/metar is an iframe onto this legacy application; it
         // is the same data one hop closer.
@@ -104,6 +139,14 @@ return [
         // purpose: retrying hard tightens the block rather than clearing it,
         // and a sustained block is handled by failing over, not by insisting.
         'attempts' => env('SMN_METAR_ATTEMPTS', 2),
+
+        // The legacy "mensajes" app itself is slow well before Cloudflare
+        // gets involved — a live request during development took 8+ seconds
+        // to answer and, once, timed out with a Cloudflare 522 on the first
+        // try. 15s left too little room for that, especially for AEROMET,
+        // which (unlike METAR/TAF) has no NOAA fallback to catch a request
+        // that gave up too early.
+        'timeout' => env('SMN_METAR_TIMEOUT', 30),
     ],
 
     'pronarea' => [

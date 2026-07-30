@@ -559,6 +559,113 @@ it('falls back to the text path for a pronarea menu payload, since none is ever 
 
 /*
 |--------------------------------------------------------------------------
+| AEROMET
+|--------------------------------------------------------------------------
+|
+| AEROMET is resolved by station name straight from the message, not by ANAC
+| aerodrome — its network also covers towns with no aerodrome at all, so it
+| never touches AirportResolver/matchIndicator the way NOTAM/METAR/TAF do.
+|
+*/
+
+it('answers with the aeromet observation for the station named, explained like a metar', function () {
+    fakeAeromet();
+
+    $reply = bot()->reply('aeromet junin')->messages;
+
+    expect($reply[0])
+        ->toContain('AEROMET JUNIN')
+        ->toContain('JUNIN 090/06KT 12KM 4Ci19800FT 16/07 Q1018.4')
+        ->toContain('Viento del 090° a 6 nudos.')
+        ->toContain('Nubes: 4/8 Cirrus a 19.800 ft.')
+        ->toContain('Fuente: Servicio Meteorológico Nacional');
+
+    // fakeAeromet() only stubs the AEROMET endpoint — this confirms the
+    // aerodrome/ANAC lookup path was never touched.
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), 'ais.anac.gob.ar'));
+});
+
+/**
+ * "NIN" is Junín's own ANAC code (see database/seeders/data/airports.php) —
+ * AerometStationResolver never looks at ANAC codes on its own, so this only
+ * resolves by bridging through AirportResolver.
+ */
+it('resolves an aeromet station named by its anac or oaci code', function () {
+    fakeAeromet();
+
+    expect(bot()->reply('aeromet nin')->messages[0])->toContain('AEROMET JUNIN');
+});
+
+/**
+ * The SMN's own gloss of a phenomenon ("Lluvia. Continua...") is folded in
+ * as its own explanation line rather than guessed at from the abbreviation.
+ */
+it('folds in the smn own gloss of a weather phenomenon', function () {
+    fakeAeromet(Http::response(smnFixture('aeromet-neuquen.html')));
+
+    expect(bot()->reply('aeromet neuquen')->messages[0])
+        ->toContain('Fenómeno: Lluvia. Continua, no congelandose, debil en el momento de la observacion.');
+});
+
+it('says so when no aeromet station is named in the message', function () {
+    Http::fake();
+
+    expect(bot()->reply('aeromet')->messages[0])
+        ->toContain('No encontré ninguna estación AEROMET');
+
+    Http::assertNothingSent();
+});
+
+it('reports a service problem when the smn cannot be reached for aeromet and nothing was cached', function () {
+    fakeAeromet(Http::response('down', 503));
+
+    expect(bot()->reply('aeromet junin')->messages[0])->toContain('No pude obtener el AEROMET');
+});
+
+it('warns when serving a stale aeromet observation instead of failing outright', function () {
+    // A sequence rather than two fakeAeromet() calls: Http::fake() merges
+    // stubs and the first match wins, so a later fake cannot override an
+    // earlier one.
+    Http::fake([
+        '*observacion=aeromet*' => Http::sequence()
+            ->push(smnFixture('aeromet-junin.html'))
+            ->push(smnFixture('challenge.html'), 403)
+            ->push(smnFixture('challenge.html'), 403),
+    ]);
+
+    bot()->reply('aeromet junin');
+
+    Cache::forget('aeromet:0');
+
+    expect(bot()->reply('aeromet junin')->messages[0])
+        ->toContain('No pude confirmar si sigue vigente')
+        ->toContain('JUNIN 090/06KT 12KM 4Ci19800FT 16/07 Q1018.4');
+});
+
+/**
+ * AEROMET is not offered as a quick-reply action, same reasoning as
+ * PRONAREA: it only ever answers a typed question.
+ */
+it('never offers a follow-up menu for an aeromet answer', function () {
+    fakeAeromet();
+    withButtonTemplates();
+
+    expect(bot()->reply('aeromet junin', PHONE)->menu)->toBeNull();
+});
+
+/**
+ * There is no "ask:aeromet:..." button anywhere for WhatsApp to echo back,
+ * but the payload grammar is user-reachable regardless of provenance, and
+ * must degrade the same way any other unrecognised payload does.
+ */
+it('falls back to the text path for an aeromet menu payload, since none is ever sent', function () {
+    fakeAnac();
+
+    expect(bot()->reply('aeroparque', PHONE, 'ask:aeromet:SAEZ')->messages[0])->toContain('(AER)');
+});
+
+/*
+|--------------------------------------------------------------------------
 | Alertas
 |--------------------------------------------------------------------------
 |

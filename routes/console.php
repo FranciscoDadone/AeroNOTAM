@@ -14,6 +14,16 @@ Schedule::command('notams:refresh-airports')->hourly()->withoutOverlapping();
 // aerodromes opened or closed since the last release.
 Schedule::command('notams:import-madhel')->weeklyOn(1, '04:00')->withoutOverlapping();
 
+// Runway headings, for the wind-component answer. An hour behind the import
+// above because that is what decides which aerodromes exist to ask about.
+//
+// Weekly despite costing one request per aerodrome — MADHEL only lists runways
+// on the per-aerodrome record — because runways are the most static thing in
+// the whole registry: they move when ANAC repaves or renumbers one, which is a
+// scale of years. There is no committed snapshot to fall back on, so a fresh
+// install has to run this once by hand before the feature answers anything.
+Schedule::command('notams:import-runways')->weeklyOn(1, '05:00')->withoutOverlapping();
+
 // Every ten minutes lines up with the METAR cache TTL, so a round costs at most
 // one request per watched station however many people are watching it. Faster
 // would only re-read the cache; slower would mean learning about a SPECI — the

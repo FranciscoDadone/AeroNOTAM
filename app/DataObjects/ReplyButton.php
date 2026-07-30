@@ -27,7 +27,13 @@ final readonly class ReplyButton
     ) {}
 
     /**
-     * "Watch this aerodrome for the next twelve hours."
+     * "Watch this aerodrome for the next twelve hours" — and, on the same
+     * message, "what is the wind doing to the runways?".
+     *
+     * Two actions rather than one because WhatsApp allows three per message and
+     * the follow-up menu has already spent its three on the other topics. The
+     * runway components are a question about the report just sent, so the
+     * report is where the offer belongs.
      *
      * The twelve is baked into the template's action id rather than passed at
      * send time, because it is also the caption the user reads on the button —
@@ -38,7 +44,24 @@ final readonly class ReplyButton
         return new self(
             contentSid: (string) config('services.twilio.content_sid_metar'),
             payloadValue: $icaoCode,
-            fallbackHint: "_Respondeme «avisame {$icaoCode}» y te aviso si cambia._",
+            fallbackHint: "_Respondeme «avisame {$icaoCode}» y te aviso si cambia, o «viento en pista {$icaoCode}» para el componente en cada cabecera._",
+        );
+    }
+
+    /**
+     * "What is this wind doing to each runway?"
+     *
+     * Its own template because the one above cannot be sent to someone who is
+     * already subscribed — the other button would offer them something they
+     * already have — and this offer should not disappear just because the watch
+     * one has nothing left to say.
+     */
+    public static function runwayWind(string $icaoCode): self
+    {
+        return new self(
+            contentSid: (string) config('services.twilio.content_sid_pista'),
+            payloadValue: $icaoCode,
+            fallbackHint: "_Respondeme «viento en pista {$icaoCode}» y te paso el componente en cada cabecera._",
         );
     }
 

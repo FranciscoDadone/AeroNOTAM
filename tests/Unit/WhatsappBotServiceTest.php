@@ -3,6 +3,7 @@
 use App\DataObjects\Metar;
 use App\Models\Airport;
 use App\Models\MetarSubscription;
+use App\Models\Runway;
 use App\Services\WhatsappBotService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -716,9 +717,18 @@ it('does not offer the watch button when there is no sender', function () {
     expect(bot()->reply('metar EZE')->button)->toBeNull();
 });
 
+/**
+ * The watch offer becomes a line of text once a watch is running — tapping a
+ * button that promised something already true would look like it had failed.
+ * The runway-wind offer is not like that and stays, which is why it has a
+ * template of its own.
+ */
 it('does not offer a watch that is already running', function () {
     fakeMetar();
-    config(['services.twilio.content_sid_metar' => 'HXtest']);
+    config([
+        'services.twilio.content_sid_metar' => 'HXtest',
+        'services.twilio.content_sid_pista' => 'HXpista',
+    ]);
 
     MetarSubscription::create([
         'phone' => PHONE,
@@ -730,7 +740,8 @@ it('does not offer a watch that is already running', function () {
 
     $reply = bot()->reply('metar EZE', PHONE);
 
-    expect($reply->button)->toBeNull()
+    expect($reply->button->contentSid)->toBe('HXpista')
+        ->and($reply->button->payloadValue)->toBe('SAEZ')
         ->and(implode(' ', $reply->messages))->toContain('Ya te estoy avisando');
 });
 
@@ -1467,4 +1478,186 @@ it('offers no menu when the aerodrome named does not serve the city answered', f
         ->and($reply->messages[0])->toContain('ESPERANZA');
 
     Carbon::setTestNow();
+});
+
+/*
+|--------------------------------------------------------------------------
+| Componente de viento en pista
+|--------------------------------------------------------------------------
+|
+| The step a METAR stops one short of: how much of the reported wind lands
+| along each cabecera and how much across it. The fixture wind is 03009KT, and
+| Ezeiza's four ends are seeded here with their real true headings so the
+| numbers in these tests are the numbers a pilot would get.
+|
+*/
+
+function seedEzeizaRunways(): void
+{
+    foreach (['11' => 102, '29' => 282, '17' => 164, '35' => 344] as $designator => $heading) {
+        Runway::create([
+            'anac_code' => 'EZE',
+            'designator' => $designator,
+            'heading_true' => $heading,
+            'is_closed' => false,
+            'source' => 'ourairports',
+        ]);
+    }
+}
+
+it('answers the wind component for every runway end', function () {
+    fakeMetar();
+    seedEzeizaRunways();
+
+    $body = implode("\n", bot()->reply('viento cruzado en Ezeiza')->messages);
+
+    expect($body)->toContain('EZEIZA')
+        ->and($body)->toContain('03009KT')
+        ->and($body)->toContain('Viento del 030° (NNE) a 9 kt')
+        // 030° is 46° off runway 35, so nine knots split almost evenly.
+        ->and($body)->toContain('✅ RWY 35 — de frente 6 kt · cruzado 6 kt (der)')
+        ->and($body)->toContain('RWY 17 — de cola 6 kt · cruzado 6 kt (izq)');
+});
+
+/**
+ * Every phrase for this question contains "viento", which is a METAR keyword.
+ * Without the ordering in topic() the observation would be answered instead of
+ * the question that starts from it.
+ */
+it('routes crosswind questions past the METAR keywords', function (string $message) {
+    fakeMetar();
+    seedEzeizaRunways();
+
+    $service = bot();
+    $service->reply($message);
+
+    expect($service->lastContext()->topic)->toBe('pista');
+})->with([
+    'viento cruzado en EZE',
+    'componente de viento en Ezeiza',
+    'que pista conviene en EZE',
+    'crosswind SAEZ',
+]);
+
+/**
+ * Matching is by substring, and MADHEL has aerodromes with the word in their
+ * own names — CORONEL SUÁREZ / LA PISTA. A bare "pista" keyword would hijack
+ * every NOTAM request that named one of them.
+ */
+it('does not hijack an aerodrome whose name contains "pista"', function () {
+    fakeAnac();
+
+    $service = bot();
+    $service->reply('notams de coronel suarez la pista');
+
+    expect($service->lastContext()->topic)->toBe('notam');
+});
+
+it('answers a tap on the runway-wind button', function () {
+    fakeMetar();
+    seedEzeizaRunways();
+
+    $service = bot();
+    $reply = $service->reply('', PHONE, 'pista:SAEZ');
+
+    expect($service->lastContext()->topic)->toBe('pista')
+        ->and($reply->messages[0])->toContain('RWY 35');
+});
+
+/**
+ * A gust is what the aircraft has to be flown for on the flare, so it rides
+ * under the favoured end — and only there, because repeating it for every
+ * cabecera would double a message meant to be read at a glance.
+ */
+it('reports the components for the gust under the favoured runway', function () {
+    fakeMetar(Http::response(smnMetarWith('METAR SAEZ 271400Z 35015G25KT 9999 SCT020 15/14 Q1009 =')));
+    seedEzeizaRunways();
+
+    $body = implode("\n", bot()->reply('viento cruzado en Ezeiza')->messages);
+
+    expect($body)->toContain('ráfagas 25 kt')
+        ->and($body)->toContain('✅ RWY 35')
+        ->and($body)->toContain('con ráfaga:')
+        ->and(substr_count($body, 'con ráfaga:'))->toBe(1);
+});
+
+/**
+ * Calm and variable are the report, not a failure to report. Naming a favoured
+ * runway off either would invent a preference the atmosphere does not have.
+ */
+it('says there is no favoured runway when the wind is variable', function () {
+    fakeMetar(Http::response(smnMetarWith('METAR SAEZ 271400Z VRB03KT 9999 SCT020 15/14 Q1009 =')));
+    seedEzeizaRunways();
+
+    $body = implode("\n", bot()->reply('viento cruzado en Ezeiza')->messages);
+
+    expect($body)->toContain('Viento variable a 3 kt')
+        ->and($body)->not->toContain('✅');
+});
+
+it('says there is no component to compute when the wind is calm', function () {
+    fakeMetar(Http::response(smnMetarWith('METAR SAEZ 271400Z 00000KT 9999 SCT020 15/14 Q1009 =')));
+    seedEzeizaRunways();
+
+    $body = implode("\n", bot()->reply('viento cruzado en Ezeiza')->messages);
+
+    expect($body)->toContain('Viento en calma')
+        ->and($body)->not->toContain('✅');
+});
+
+it('says so plainly when it has no runway headings on file', function () {
+    fakeMetar();
+
+    $body = implode("\n", bot()->reply('viento cruzado en Ezeiza')->messages);
+
+    expect($body)->toContain('No tengo los rumbos de pista')
+        ->and($body)->toContain('EZEIZA');
+});
+
+/**
+ * No wind, no component. The AEROMET offer is the same dead-end handling the
+ * METAR reply already uses: not a promise the tap will find anything, just a
+ * next thing to try.
+ */
+it('offers AEROMET when there is no METAR to compute a component from', function () {
+    fakeMetar(Http::response(smnFixture('metar-empty.html')));
+    config(['services.twilio.content_sid_aeromet' => 'HXaeromet']);
+
+    Runway::create([
+        'anac_code' => 'NIN', 'designator' => '18', 'heading_true' => 172,
+        'is_closed' => false, 'source' => 'madhel',
+    ]);
+
+    $reply = bot()->reply('viento cruzado en junin', PHONE);
+
+    expect($reply->messages[0])->toContain('No hay METAR publicado')
+        ->and($reply->button->contentSid)->toBe('HXaeromet');
+});
+
+/**
+ * A closed runway is shown — a pilot who sees three on the chart and two here
+ * has been told something false — but it is never the recommendation.
+ */
+it('shows a closed runway without ever recommending it', function () {
+    fakeMetar();
+    seedEzeizaRunways();
+    Runway::where('anac_code', 'EZE')->where('designator', '35')->update(['is_closed' => true]);
+
+    $body = implode("\n", bot()->reply('viento cruzado en Ezeiza')->messages);
+
+    expect($body)->toContain('⛔ RWY 35 — cerrada')
+        ->and($body)->toContain('✅ RWY 11');
+});
+
+/**
+ * A northerly is reported as 360, never 000 — 000 is the code for calm.
+ * MetarConditions normalises it to 0 for comparison, which is right for
+ * arithmetic and wrong to print.
+ */
+it('reports a northerly wind as 360 degrees, not 000', function () {
+    fakeMetar(Http::response(smnMetarWith('METAR SAEZ 271400Z 36012KT 9999 SCT020 15/14 Q1009 =')));
+    seedEzeizaRunways();
+
+    expect(implode("\n", bot()->reply('viento cruzado en Ezeiza')->messages))
+        ->toContain('Viento del 360° (N) a 12 kt');
 });

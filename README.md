@@ -27,6 +27,10 @@ SMN  (scraping HTML) ┐                                                 → Bot
 NOAA (respaldo, API) ┼→ MetarService (caché + failover) → MetarEnricher
                      └→ TafService   (caché + failover) → TafEnricher
 SHN  (scraping HTML) → ShnSunService (caché)                            → Bot WhatsApp
+
+MADHEL      (API JSON) ┐
+OurAirports (CSV)      ┼→ notams:import-runways → tabla runways → RunwayWind
+NOAA WMM    (API JSON) ┘   (declinación magnética)                 (componente de viento)
 ```
 
 - **`AnacNotamService`** habla con ANAC y parsea su HTML. Devuelve NOTAM crudos
@@ -145,7 +149,7 @@ los tres procesos que la aplicación necesita para estar entera:
 | --- | --- |
 | `app` | La API REST y el webhook de WhatsApp, en `:8090` (`APP_PORT` lo cambia). |
 | `queue` | `queue:work`. **Sin él el bot no contesta**: toda respuesta sale de un job. |
-| `scheduler` | `schedule:work`: `notams:refresh-airports`, `notams:import-madhel` y la ronda de `metar:watch`. |
+| `scheduler` | `schedule:work`: `notams:refresh-airports`, `notams:import-madhel`, `notams:import-runways` y la ronda de `metar:watch`. |
 
 Un cuarto servicio, `migrate`, corre una vez antes que los demás y termina:
 migra, siembra los aeródromos y pone la base en modo WAL. Tenerlo aparte es lo
@@ -274,6 +278,83 @@ ahora hay con qué contestarlas.
 La palabra `"notam"` gana sobre todo lo demás: quien la escribió sabe lo que
 pidió, y _"hay notams para mañana en EZE?"_ no se contesta con un pronóstico.
 
+### Componente de viento en pista
+
+`"viento cruzado en Ezeiza"`, `"componente de viento en EZE"` o
+`"qué pista conviene en SAEZ"` toman el METAR vigente y lo descomponen contra
+cada cabecera: cuánto viento queda de frente (o de cola) y cuánto atraviesa la
+pista. La respuesta lista todas las cabeceras, la más favorable primero, y bajo
+esa agrega el cálculo con la ráfaga — que es el número contra el que se chequea
+un límite de viento cruzado.
+
+Es el paso que el METAR deja a medio camino: informa `35015G25KT` y deja al
+lector hacer la cuenta que en realidad decide dónde aterrizar.
+
+```
+🛬 EZEIZA / MINISTRO PISTARINI (SAEZ)
+
+35015G25KT
+Viento del 350° (N) a 15 kt, ráfagas 25 kt
+
+✅ RWY 35 — de frente 15 kt · cruzado 1 kt (izq)
+     con ráfaga: de frente 25 kt · cruzado 2 kt
+   RWY 29 — de frente 4 kt · cruzado 14 kt (izq)
+   RWY 11 — de cola 4 kt · cruzado 14 kt (der)
+   RWY 17 — de cola 15 kt · cruzado 1 kt (der)
+```
+
+Estas frases se chequean **antes** que las de METAR, porque todas contienen
+"viento" y si no la observación se comería la pregunta. `"pista"` a secas no es
+palabra clave: el matching es por substring y hay aeródromos que la llevan en el
+nombre (`CORONEL SUÁREZ / LA PISTA`), así que _"notams de la pista"_ se
+desviaría solo.
+
+Con viento en calma o variable no hay componente que calcular ni cabecera
+favorecida, y lo dice en vez de inventar un número. Una pista cerrada se lista
+marcada — que exista y no se pueda usar es información operativa — pero nunca
+se recomienda.
+
+#### De dónde salen los rumbos de pista
+
+El designador de una pista es **magnético** y el viento del METAR es
+**verdadero**. En Argentina la declinación va de −10° en Buenos Aires a +11,7°
+en Ushuaia, cruzando el cero en la Patagonia: no tiene un signo único y
+saltearla mete hasta 20° de error en el ángulo del que depende toda la cuenta.
+Por eso `runways.heading_true` guarda el rumbo ya corregido, y la corrección se
+aplica una sola vez, al importar.
+
+La declinación sale del [WMM de la NOAA](https://www.ngdc.noaa.gov/geomag/WMM/)
+y queda cacheada en la fila del aeródromo: deriva una décima de grado por año,
+así que se consulta como mucho una vez al año por aeródromo.
+
+Los rumbos vienen de dos fuentes porque ninguna alcanza sola:
+
+| Fuente | Cubre | Problema |
+|---|---|---|
+| **MADHEL** (ANAC, oficial) | 88 de 139 aeródromos públicos con OACI | Publica `rwy: []` justo en los más consultados (EZE, AEP, COR, MDZ, ROS, TUC): delegan al AIP |
+| **OurAirports** (abierto) | 114 de 139, y con rumbo verdadero ya calculado | Le faltan 25 aeródromos chicos, y tiene algún registro erróneo |
+
+Son casi exactamente complementarias: MADHEL tiene los chicos que OurAirports no
+conoce y OurAirports tiene los grandes que MADHEL deja en blanco. Juntas cubren
+prácticamente todo el registro público.
+
+Un rumbo publicado por OurAirports se usa sólo si concuerda con su propio
+designador dentro de 20°. Eso no es por precisión — un designador está
+redondeado a diez grados, así que discrepar unos pocos es normal — sino contra
+el disparate: OurAirports publica la pista 05 de SAOC con rumbo 178°, que está a
+128° de donde una pista numerada 05 puede apuntar. En ese caso gana el
+designador.
+
+```bash
+php artisan notams:import-runways            # todo el registro, ~5 min
+php artisan notams:import-runways --only=EZE # un aeródromo
+```
+
+**No hay snapshot commiteado**: la tabla se llena y se mantiene sólo con este
+comando, que corre semanalmente después de `notams:import-madhel`. Una
+instalación nueva tiene que correrlo una vez a mano, o el bot contesta
+honestamente que no tiene los rumbos.
+
 ### Crepúsculo: hasta qué hora hay luz
 
 `"crepusculo santa rosa"`, `"a qué hora atardece en Bariloche?"` o
@@ -382,15 +463,23 @@ de Twilio. Se crean una sola vez por cuenta y sus SID van al `.env`:
 php artisan whatsapp:content-templates
 # TWILIO_CONTENT_SID_METAR=HX...
 # TWILIO_CONTENT_SID_ALERT=HX...
+# TWILIO_CONTENT_SID_PISTA=HX...
 ```
 
 No se someten a aprobación de WhatsApp y no hace falta: la aprobación compra el
-derecho a escribirle a alguien de la nada, y estas dos sólo salen dentro de la
+derecho a escribirle a alguien de la nada, y éstas sólo salen dentro de la
 ventana que abrió el mensaje del propio usuario.
 
-**Sin esos SID el bot funciona igual.** Los dos mensajes salen en texto plano
-con el comando escrito equivalente al pie (_"Respondeme «avisame SAEZ»"_). El
-botón ahorra tipear; nunca es el único camino.
+**WhatsApp dibuja como mucho tres botones por mensaje**, y de ahí sale la forma
+que tiene todo esto. Los menús de seguimiento ya gastan los tres, así que la
+oferta **🛬 Viento en pista** viaja en el mensaje del METAR, donde había lugar:
+`TWILIO_CONTENT_SID_METAR` lleva los dos botones, y
+`TWILIO_CONTENT_SID_PISTA` lleva sólo ése, para el METAR de un aeródromo al que
+el lector ya está suscripto — ahí el botón de alta prometería algo que ya pasa.
+
+**Sin esos SID el bot funciona igual.** Los mensajes salen en texto plano con el
+comando escrito equivalente al pie (_"Respondeme «avisame SAEZ»"_). El botón
+ahorra tipear; nunca es el único camino.
 
 Con SQLite, activá WAL para que el worker y el servidor web no se bloqueen
 mutuamente:

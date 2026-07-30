@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Support\Compass;
+
 /**
  * The groups METAR and TAF have in common, and the machinery for turning a run
  * of them into plain Spanish.
@@ -476,10 +478,7 @@ abstract class AviationCodeDecoder
 
     protected function compassName(int $degrees): string
     {
-        /** @var array<int, string> $points */
-        $points = self::table('compass');
-
-        return $points[(int) round(($degrees % 360) / 22.5) % 16];
+        return Compass::name($degrees);
     }
 
     /**

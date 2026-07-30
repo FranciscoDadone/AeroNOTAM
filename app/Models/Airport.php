@@ -16,6 +16,10 @@ use Illuminate\Support\Carbon;
  * @property bool $is_controlled
  * @property bool $is_closed
  * @property Carbon|null $last_seen_active_at
+ * @property float|null $latitude
+ * @property float|null $longitude
+ * @property float|null $magnetic_variation
+ * @property Carbon|null $magnetic_variation_at
  */
 class Airport extends Model
 {
@@ -29,6 +33,10 @@ class Airport extends Model
         'is_controlled',
         'is_closed',
         'last_seen_active_at',
+        'latitude',
+        'longitude',
+        'magnetic_variation',
+        'magnetic_variation_at',
     ];
 
     protected function casts(): array
@@ -38,6 +46,10 @@ class Airport extends Model
             'is_controlled' => 'boolean',
             'is_closed' => 'boolean',
             'last_seen_active_at' => 'datetime',
+            'latitude' => 'float',
+            'longitude' => 'float',
+            'magnetic_variation' => 'float',
+            'magnetic_variation_at' => 'datetime',
         ];
     }
 

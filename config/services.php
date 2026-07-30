@@ -51,6 +51,29 @@ return [
         'minimum_count' => env('MADHEL_MINIMUM_COUNT', 500),
     ],
 
+    // The open runway registry, read only by notams:import-runways and only
+    // for the aerodromes MADHEL leaves blank — which happen to be the busiest
+    // ones, because they defer to the AIP instead of publishing their runways.
+    'ourairports' => [
+        'runways_url' => env(
+            'OURAIRPORTS_RUNWAYS_URL',
+            'https://davidmegginson.github.io/ourairports-data/runways.csv',
+        ),
+    ],
+
+    // NOAA's World Magnetic Model, which says how far magnetic north is from
+    // true north at a given point. Needed because runway designators are
+    // magnetic and METAR winds are true, and in Argentina the difference runs
+    // from −10° to +11.7°. Queried at most once a year per aerodrome: the
+    // answer is cached on the airports row.
+    'noaa_geomag' => [
+        'url' => env(
+            'NOAA_GEOMAG_URL',
+            'https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination',
+        ),
+        'key' => env('NOAA_GEOMAG_KEY', 'zNEw7'),
+    ],
+
     'weather' => [
         // How long to leave a source alone after it fails. The SMN's challenge
         // tightens the more it is hit, so backing off is what lets the block
@@ -219,6 +242,12 @@ return [
         // top of an interface that works without it.
         'content_sid_metar' => env('TWILIO_CONTENT_SID_METAR'),
         'content_sid_alert' => env('TWILIO_CONTENT_SID_ALERT'),
+
+        // The runway-wind offer on its own, for the METAR of an aerodrome the
+        // reader is already subscribed to: the template above carries both
+        // buttons, and it cannot be sent when the watch offer would be a
+        // promise about something already true.
+        'content_sid_pista' => env('TWILIO_CONTENT_SID_PISTA'),
 
         // Offered under a METAR that came back empty, for the aerodromes
         // AEROMET also covers under the same name — a next thing to try

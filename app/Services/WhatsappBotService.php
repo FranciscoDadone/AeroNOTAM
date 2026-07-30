@@ -14,9 +14,14 @@ use App\DataObjects\SunTimes;
 use App\DataObjects\Taf;
 use App\DataObjects\WhatsappReply;
 use App\Models\MetarSubscription;
+use App\Models\Runway;
 use App\Support\AerometStationResolver;
 use App\Support\AirportResolver;
+use App\Support\Compass;
+use App\Support\MetarConditions;
 use App\Support\PronareaFirResolver;
+use App\Support\RunwayResolver;
+use App\Support\RunwayWind;
 use App\Support\SunCityResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -121,6 +126,25 @@ class WhatsappBotService
     ];
 
     /**
+     * Words that ask what the wind is doing to the runways, rather than what
+     * the wind is.
+     *
+     * Checked before METAR_KEYWORDS, which contains "viento" and would swallow
+     * every one of these — someone asking for the crosswind has already read
+     * the wind and wants the next step.
+     *
+     * "pista" on its own is deliberately absent. Matching is by substring and
+     * aerodromes carry the word in their own names — CORONEL SUÁREZ / LA PISTA,
+     * EZEIZA / MINISTRO PISTARINI — so a bare "pista" would route "notams de la
+     * pista" here and answer a question nobody asked.
+     */
+    protected const RUNWAY_WIND_KEYWORDS = [
+        'viento cruzado', 'crosswind', 'componente de viento', 'componente del viento',
+        'componente en pista', 'viento en pista', 'viento en la pista', 'pista en uso',
+        'que pista uso', 'que pista conviene', 'que pista me conviene', 'cabecera favorecida',
+    ];
+
+    /**
      * How the SHN's month names are spelled in ordinary text, for a question
      * like "crepusculo en salta el 15 de agosto". Accent-stripped, since the
      * message reaching this map already went through Str::ascii().
@@ -186,6 +210,13 @@ class WhatsappBotService
     protected const BUTTON_AEROMET = '/^aeromet:(\d{5})$/';
 
     /**
+     * A tap on the "Viento en pista" offer that rides under every METAR. Same
+     * shape as BUTTON_ASK — the aerodrome comes back in the payload, so the tap
+     * needs no matching — and {3,4} for the same reason.
+     */
+    protected const BUTTON_RUNWAY_WIND = '/^pista:([A-Z]{3,4})$/';
+
+    /**
      * What the last call to reply() made of the message. Kept aside instead of
      * being returned with the reply because only the message log cares.
      */
@@ -206,6 +237,7 @@ class WhatsappBotService
         protected AerometService $aeromet,
         protected AerometEnricher $aerometEnricher,
         protected AerometStationResolver $aerometStations,
+        protected RunwayResolver $runways,
     ) {
         $this->context = new ReplyContext;
     }
@@ -272,6 +304,7 @@ class WhatsappBotService
         return match ($topic) {
             'taf' => $this->tafReply($indicator, $from),
             'metar' => $this->metarReply($indicator, $from),
+            'pista' => $this->runwayWindReply($indicator, $from),
             'pronarea' => $this->pronareaReply($indicator),
             default => $this->notamReply($indicator, $from),
         };
@@ -328,6 +361,12 @@ class WhatsappBotService
             return $this->aerometReplyForCode($m[1]);
         }
 
+        if (preg_match(self::BUTTON_RUNWAY_WIND, $payload, $m) === 1) {
+            $this->context->topic = 'pista';
+
+            return $this->runwayWindReply($this->context->anacCode = $this->airports->resolve($m[1]), $from);
+        }
+
         return null;
     }
 
@@ -354,6 +393,11 @@ class WhatsappBotService
      * and a station's current observation are not standing conditions to
      * subscribe to), and PRONAREA's keywords overlap with a TAF word the same
      * way the sun's overlap with one.
+     *
+     * The runway components sit with them, ahead of the METAR words, because
+     * every one of their phrases contains "viento" and would otherwise be read
+     * as a plain request for the observation — which is the question they are
+     * one step past.
      */
     protected function topic(string $message): string
     {
@@ -363,6 +407,7 @@ class WhatsappBotService
             $this->mentions($normalized, self::SUN_KEYWORDS) => 'crepusculo',
             $this->mentions($normalized, self::PRONAREA_KEYWORDS) => 'pronarea',
             $this->mentions($normalized, self::AEROMET_KEYWORDS) => 'aeromet',
+            $this->mentions($normalized, self::RUNWAY_WIND_KEYWORDS) => 'pista',
             $this->mentions($normalized, self::LIST_KEYWORDS) => 'list',
             $this->mentions($normalized, self::UNSUBSCRIBE_KEYWORDS) => 'unsubscribe',
             $this->mentions($normalized, self::SUBSCRIBE_KEYWORDS) => 'subscribe',
@@ -670,13 +715,23 @@ class WhatsappBotService
     }
 
     /**
-     * The "notify me" offer that goes under an observation: a button when there
-     * is something to offer, a line of text when there already is a watch
-     * running, and nothing at all off-channel.
+     * What goes under an observation: the buttons to offer, and the line of
+     * text that replaces the watch offer once a watch is already running.
      *
-     * Offering the button to someone who is already subscribed would be a
+     * Offering the watch button to someone who is already subscribed would be a
      * promise about something already true — worse than useless, because
-     * tapping it would look like it had failed to change anything.
+     * tapping it would look like it had failed to change anything. The runway
+     * components are not like that: they answer a question about the report
+     * just sent, and stay on offer either way. So there are two templates, and
+     * which one is sent turns on whether the watch offer still has anything to
+     * say.
+     *
+     * The runway button is offered without first checking that the aerodrome
+     * has runways on file — it cannot be, since the two actions live in one
+     * template and a template's buttons are fixed when it is registered. That
+     * is the same bargain the AEROMET offer makes: the tap is a next thing to
+     * try, and runwayWindReply() says so plainly when there is nothing behind
+     * it.
      *
      * @return array{0: ?ReplyButton, 1: ?string}
      */
@@ -694,7 +749,160 @@ class WhatsappBotService
 
         return $existing === null
             ? [ReplyButton::subscribe($icao), null]
-            : [null, "🔔 _Ya te estoy avisando de los cambios acá, hasta el {$existing->expiryLabel()}._"];
+            : [ReplyButton::runwayWind($icao), "🔔 _Ya te estoy avisando de los cambios acá, hasta el {$existing->expiryLabel()}._"];
+    }
+
+    /**
+     * What the current wind is doing to each runway end.
+     *
+     * This is the step a METAR stops one short of. It reports "35015G25KT" and
+     * leaves the reader to work out, for each cabecera, how much of that lands
+     * along the runway and how much across it — which is the number that
+     * actually decides where to land.
+     *
+     * Four ways this can honestly have no answer, in the order they are worth
+     * checking: no OACI code (so no METAR will ever exist), no runways on file,
+     * no METAR published right now, and a wind with no direction to measure
+     * against. Each says so rather than producing a number.
+     */
+    protected function runwayWindReply(string $indicator, ?string $from): WhatsappReply
+    {
+        $name = $this->airports->nameFor($indicator) ?? $indicator;
+        $icao = $this->airports->icaoFor($indicator);
+
+        if ($icao === null) {
+            return WhatsappReply::of("*{$name}* ({$indicator}) no tiene código OACI, así que el SMN no publica METAR y no tengo viento con el que calcular el componente en pista.");
+        }
+
+        $runways = $this->runways->forAnacCode($indicator);
+
+        if ($runways === []) {
+            return WhatsappReply::of("No tengo los rumbos de pista de *{$name}* ({$icao}), así que no puedo calcular el componente. Pedime el METAR y te paso el viento tal como lo informa el SMN.");
+        }
+
+        try {
+            $metars = $this->metarService->getMetars($icao);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return WhatsappReply::of('Encontré el aeropuerto pero no pude obtener su METAR en este momento. Probá de nuevo en unos minutos.');
+        }
+
+        if ($metars === []) {
+            $aerometCode = $this->aerometStations->codeForName($name);
+
+            return WhatsappReply::ofMany(
+                ["No hay METAR publicado para *{$name}* ({$icao}) en este momento, así que no hay viento con el que calcular el componente en pista."],
+                $aerometCode === null ? null : ReplyButton::aeromet($aerometCode, $name),
+            );
+        }
+
+        // The most recent observation only. A crosswind from an hour ago is not
+        // a crosswind, and unlike the METAR reply — where older reports show a
+        // trend — there is nothing to be learnt here from stacking them.
+        return $this->formatRunwayWind($name, $icao, $runways, $metars[0])
+            // The METAR menu, not one of its own: the other three topics are
+            // exactly what is worth offering next, and a fifth quick-reply
+            // template could not be rendered anyway.
+            ->withMenu($this->menuFor('metar', $indicator, $from));
+    }
+
+    /**
+     * @param  array<int, Runway>  $runways
+     */
+    protected function formatRunwayWind(string $airportName, string $icao, array $runways, Metar $metar): WhatsappReply
+    {
+        $conditions = MetarConditions::fromRaw($metar->raw);
+        $header = "🛬 *{$airportName}* ({$icao})";
+        $budget = self::MAX_MESSAGE_LENGTH - mb_strlen($header) - 12;
+
+        $lines = ['```'.($conditions->windGroup ?? $metar->raw).'```'];
+
+        // Calm and variable are not failures to report a wind — they are the
+        // report. Naming a favoured runway off either would be inventing a
+        // preference the atmosphere does not have.
+        if ($conditions->windSpeed === null) {
+            $lines[] = 'No pude leer el grupo de viento de este METAR, así que no puedo calcular el componente.';
+        } elseif ($conditions->windSpeed === 0) {
+            $lines[] = 'Viento en calma: no hay componente que calcular ni cabecera favorecida.';
+        } elseif ($conditions->windDirection === null) {
+            $lines[] = "Viento variable a {$conditions->windSpeed} kt: sin dirección fija no hay una cabecera favorecida.";
+        } else {
+            $lines = array_merge($lines, $this->runwayWindLines($runways, $conditions));
+        }
+
+        $lines[] = '';
+        $lines[] = $this->sourceCredit($metar->isRelayed());
+
+        return WhatsappReply::ofMany(
+            $this->withHeader($header, $this->splitToFit(implode("\n", $lines), $budget)),
+        );
+    }
+
+    /**
+     * The wind in words, then one line per cabecera, best first.
+     *
+     * The gust figures ride only under the favoured runway. They are the number
+     * a crosswind limit is actually checked against, so they have to be there —
+     * but repeating them for every end would double a message whose whole point
+     * is to be read at a glance.
+     *
+     * @param  array<int, Runway>  $runways
+     * @return array<int, string>
+     */
+    protected function runwayWindLines(array $runways, MetarConditions $conditions): array
+    {
+        // A northerly is reported as 360, not 000 — MetarConditions normalises
+        // it away for comparison, and 000 is the code for calm, which this
+        // branch has already been ruled out of.
+        $direction = str_pad((string) ($conditions->windDirection ?: 360), 3, '0', STR_PAD_LEFT);
+        $gustNote = $conditions->windGust === null ? '' : ", ráfagas {$conditions->windGust} kt";
+
+        $lines = [
+            "Viento del {$direction}° (".Compass::name($conditions->windDirection).") a {$conditions->windSpeed} kt{$gustNote}",
+            '',
+        ];
+
+        $components = RunwayWind::components(
+            $runways,
+            $conditions->windDirection,
+            $conditions->windSpeed,
+            $conditions->windGust,
+        );
+
+        $favoured = RunwayWind::favoured($components);
+
+        foreach ($components as $component) {
+            $isFavoured = $component === $favoured;
+
+            $lines[] = ($component->isClosed ? '⛔' : ($isFavoured ? '✅' : '  '))
+                ." RWY {$component->designator} — "
+                .($component->isClosed ? 'cerrada — ' : '')
+                .$this->componentPhrase($component->headwind, $component->crosswind, $component->side);
+
+            if ($isFavoured && $component->gustHeadwind !== null && $component->gustCrosswind !== null) {
+                $lines[] = '     con ráfaga: '
+                    .$this->componentPhrase($component->gustHeadwind, $component->gustCrosswind, $component->side);
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
+     * "de frente 15 kt · cruzado 1 kt (izq)".
+     *
+     * The side is dropped when the crosswind is zero: the wind is straight down
+     * the runway, and naming a side would invent a distinction the arithmetic
+     * did not make.
+     */
+    protected function componentPhrase(int $headwind, int $crosswind, string $side): string
+    {
+        $along = $headwind < 0
+            ? 'de cola '.abs($headwind)
+            : "de frente {$headwind}";
+
+        return "{$along} kt · cruzado {$crosswind} kt".($crosswind === 0 ? '' : " ({$side})");
     }
 
     /**
@@ -1552,6 +1760,8 @@ class WhatsappBotService
             .'Para el pronóstico de área de toda la FIR, pedime el PRONAREA: _"pronarea EZE"_.'
             ."\n\n"
             .'El AEROMET del SMN cubre más estaciones que el METAR, incluso ciudades sin aeródromo: _"aeromet junin"_.'
+            ."\n\n"
+            .'Con el METAR en la mano puedo calcular el componente de viento en cada cabecera: _"viento cruzado en Ezeiza"_.'
             ."\n\n"
             .'También puedo avisarte cuando el clima cambie: _"avisame EZE"_. Con _"mis alertas"_ ves las que tenés activas.'
             ."\n\n"

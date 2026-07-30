@@ -31,6 +31,7 @@
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TWILIO_CONTENT_SID_METAR" value=""/>
         <env name="TWILIO_CONTENT_SID_ALERT" value=""/>
+        <env name="TWILIO_CONTENT_SID_PISTA" value=""/>
         <env name="TWILIO_CONTENT_SID_MENU_NOTAM" value=""/>
         <env name="TWILIO_CONTENT_SID_MENU_METAR" value=""/>
         <env name="TWILIO_CONTENT_SID_MENU_TAF" value=""/>

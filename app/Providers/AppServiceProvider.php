@@ -4,10 +4,12 @@ namespace App\Providers;
 
 use App\Contracts\WhatsappSender;
 use App\Services\AerometService;
+use App\Services\MagneticVariationService;
 use App\Services\MetarService;
 use App\Services\NoaaMetarSource;
 use App\Services\NoaaTafSource;
 use App\Services\OgimetAerometSource;
+use App\Services\OurAirportsRunwaySource;
 use App\Services\SmnMetarSource;
 use App\Services\SmnTafSource;
 use App\Services\TafService;
@@ -52,6 +54,15 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->bind(AdminMetrics::class, fn () => new AdminMetrics(
             (string) config('app.display_timezone'),
+        ));
+
+        $this->app->bind(OurAirportsRunwaySource::class, fn () => new OurAirportsRunwaySource(
+            (string) config('services.ourairports.runways_url'),
+        ));
+
+        $this->app->bind(MagneticVariationService::class, fn () => new MagneticVariationService(
+            (string) config('services.noaa_geomag.url'),
+            (string) config('services.noaa_geomag.key'),
         ));
     }
 

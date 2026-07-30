@@ -11,9 +11,16 @@ use Twilio\Rest\Content\V1\ContentModels;
  * Registers the content templates that let a WhatsApp message carry buttons,
  * and prints their SIDs.
  *
- * Seven of them: subscribe/unsubscribe under a METAR, "Consultar AEROMET"
- * under one that came back empty, and one follow-up menu per question topic
- * (NOTAM, METAR, TAF, crepúsculo) offering the other three. PRONAREA has no
+ * Eight of them: subscribe under a METAR — alongside the runway-wind offer, the
+ * one message that carries two actions — that same offer on its own for a
+ * reader who is already subscribed, unsubscribe under an alert, "Consultar
+ * AEROMET" under a METAR that came back empty, and one follow-up menu per
+ * question topic (NOTAM, METAR, TAF, crepúsculo) offering the other three.
+ *
+ * WhatsApp renders at most three quick replies on a message, which is the whole
+ * reason the shape is what it is: the menus are already at three, so a fifth
+ * topic could not be added to them and the runway-wind offer went onto the
+ * METAR itself, where there was room. PRONAREA has no
  * template of its own: it is not offered as a quick-reply action, by design
  * (see ReplyButton::MENU_OFFERS). There is one menu template per topic
  * rather than a single shared one because a quick-reply template's captions
@@ -131,6 +138,25 @@ class CreateContentTemplates extends Command
                     // than passed at send time, because it is also the
                     // caption on the button — the two must not drift apart.
                     ['title' => '🔔 Avisarme 12 h', 'id' => 'sub:{{2}}:12'],
+
+                    // The wind components ride on the METAR itself rather than
+                    // on the follow-up menu, because the menu is already at the
+                    // three quick replies WhatsApp will render and because this
+                    // is a question about the report just sent, not a change of
+                    // subject. Both actions substitute the same {{2}}.
+                    ['title' => '🛬 Viento en pista', 'id' => 'pista:{{2}}'],
+                ],
+            ],
+            'TWILIO_CONTENT_SID_PISTA' => [
+                'friendly_name' => 'notams_metar_pista',
+                'body_sample' => 'METAR SAEZ 271400Z 18008KT 9999 SCT020 22/14 Q1013',
+                'sample' => 'SAEZ',
+                'actions' => [
+                    // The same offer alone, for the METAR of an aerodrome the
+                    // reader already watches: the template above cannot be sent
+                    // there, because its other button would promise something
+                    // that is already true.
+                    ['title' => '🛬 Viento en pista', 'id' => 'pista:{{2}}'],
                 ],
             ],
             'TWILIO_CONTENT_SID_ALERT' => [

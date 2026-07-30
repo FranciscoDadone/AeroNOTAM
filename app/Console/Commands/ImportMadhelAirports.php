@@ -40,10 +40,12 @@ class ImportMadhelAirports extends Command
         foreach (array_chunk($this->rows($airports), self::CHUNK) as $chunk) {
             // last_seen_active_at is deliberately absent: that is ANAC's NOTAM
             // service talking, not MADHEL, and an import must not erase it.
+            // So is magnetic_variation, which notams:import-runways derives
+            // from the coordinates this import brings in.
             Airport::upsert(
                 $chunk,
                 ['anac_code'],
-                ['icao_code', 'name', 'is_aerodrome', 'kind', 'access', 'is_controlled', 'is_closed', 'updated_at'],
+                ['icao_code', 'name', 'is_aerodrome', 'kind', 'access', 'is_controlled', 'is_closed', 'latitude', 'longitude', 'updated_at'],
             );
         }
 
@@ -128,7 +130,7 @@ class ImportMadhelAirports extends Command
 
         foreach ($airports as $airport) {
             $rows .= sprintf(
-                "    ['anac_code' => %s, 'icao_code' => %s, 'name' => %s, 'kind' => %s, 'access' => %s, 'is_controlled' => %s, 'is_closed' => %s],\n",
+                "    ['anac_code' => %s, 'icao_code' => %s, 'name' => %s, 'kind' => %s, 'access' => %s, 'is_controlled' => %s, 'is_closed' => %s, 'latitude' => %s, 'longitude' => %s],\n",
                 ...array_map($this->literal(...), [
                     $airport['anac_code'],
                     $airport['icao_code'],
@@ -137,6 +139,8 @@ class ImportMadhelAirports extends Command
                     $airport['access'],
                     $airport['is_controlled'],
                     $airport['is_closed'],
+                    $airport['latitude'],
+                    $airport['longitude'],
                 ]),
             );
         }
@@ -167,7 +171,7 @@ class ImportMadhelAirports extends Command
      * var_export() renders null as "NULL", which Pint would then rewrite on the
      * next run and leave the generated file perpetually dirty.
      */
-    protected function literal(string|bool|null $value): string
+    protected function literal(string|bool|float|null $value): string
     {
         return match (true) {
             $value === null => 'null',

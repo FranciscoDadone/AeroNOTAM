@@ -28,13 +28,13 @@ class AirportSeeder extends Seeder
             Airport::upsert(
                 $chunk,
                 ['anac_code'],
-                ['icao_code', 'name', 'is_aerodrome', 'kind', 'access', 'is_controlled', 'is_closed', 'updated_at'],
+                ['icao_code', 'name', 'is_aerodrome', 'kind', 'access', 'is_controlled', 'is_closed', 'latitude', 'longitude', 'updated_at'],
             );
         }
     }
 
     /**
-     * @return array<int, array{anac_code: string, icao_code: string|null, name: string, kind: string, access: string|null, is_controlled: bool, is_closed: bool}>
+     * @return array<int, array{anac_code: string, icao_code: string|null, name: string, kind: string, access: string|null, is_controlled: bool, is_closed: bool, latitude: float|null, longitude: float|null}>
      */
     protected function airports(): array
     {

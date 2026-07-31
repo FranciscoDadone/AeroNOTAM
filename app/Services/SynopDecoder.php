@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Support\SurfaceWind;
+
 /**
  * Turns a raw WMO FM-12 SYNOP report into plain Spanish, one line per
  * decoded group — what makes an OgimetAerometSource row readable, the same
@@ -65,7 +67,7 @@ class SynopDecoder
             return [];
         }
 
-        $windLine = $this->matchWind($tokens[4], $this->windIndicator($tokens[1]));
+        $windLine = $this->windLine(SurfaceWind::fromSynop($raw));
         $visibilityLine = $this->matchVisibility($tokens[3]);
 
         $temperature = null;
@@ -111,42 +113,27 @@ class SynopDecoder
     }
 
     /**
-     * "iw" from the YYGGiw group — whether the wind speed that follows, in
-     * Nddff, is in knots already or needs converting from m/s (WMO code
-     * table 1855: 0/1 = m/s, 3/4 = knots).
+     * The "Nddff" group in words. Reading it is SurfaceWind's job rather than
+     * this class's, because the runway-component reply needs the same group as
+     * numbers — one grammar, two renderings, instead of two grammars that
+     * could come to disagree about the same report.
+     *
+     * A northerly is printed as 360, never 000: 000 is the code for calm,
+     * which the branch above has already accounted for.
      */
-    protected function windIndicator(string $token): ?string
+    protected function windLine(?SurfaceWind $wind): ?string
     {
-        return preg_match('/^\d{4}(\d)$/', $token, $m) === 1 ? $m[1] : null;
-    }
-
-    /**
-     * "Nddff" — total cloud cover (not shown, see the class docblock),
-     * direction in tens of degrees, speed in whatever unit $iw names.
-     */
-    protected function matchWind(string $token, ?string $iw): ?string
-    {
-        if (preg_match('/^\d{5}$/', $token) !== 1) {
+        if ($wind === null || $wind->speed === null) {
             return null;
         }
 
-        $direction = (int) substr($token, 1, 2);
-        $speed = (int) substr($token, 3, 2);
-
-        if ($direction === 0 && $speed === 0) {
+        if ($wind->speed === 0) {
             return 'Viento: calma.';
         }
 
-        $knots = $this->toKnots($speed, $iw);
-
-        return $direction === 99
-            ? "Viento variable a {$knots} nudos."
-            : sprintf('Viento del %03d° a %d nudos.', $direction * 10, $knots);
-    }
-
-    protected function toKnots(int $speed, ?string $iw): int
-    {
-        return in_array($iw, ['0', '1'], true) ? (int) round($speed * 1.94384) : $speed;
+        return $wind->direction === null
+            ? "Viento variable a {$wind->speed} nudos."
+            : sprintf('Viento del %03d° a %d nudos.', $wind->direction ?: 360, $wind->speed);
     }
 
     /**

@@ -45,6 +45,22 @@ it('matches an aerodrome name regardless of accents', function () {
     expect(aerometStations()->codeForName('JUNÍN'))->toBe('87548');
 });
 
+/**
+ * ANAC names an aerodrome "LOCALIDAD / NOMBRE"; AEROMET names its stations
+ * after the locality alone. CORONEL SUÁREZ / LA PISTA has no ICAO code and so
+ * will never have a METAR — the station covering its locality is the only wind
+ * there is for it.
+ */
+it('matches an aerodrome by the locality half of its name', function () {
+    expect(aerometStations()->codeForName('CORONEL SUÁREZ / LA PISTA'))->toBe('87637')
+        ->and(aerometStations()->codeForName('EL PALOMAR / HELIPUERTO'))->toBe('87571');
+});
+
+/**
+ * The locality half is still compared whole, never as a substring: "SAN CARLOS
+ * DE BARILOCHE" contains AEROMET's "SAN CARLOS", which is a station in Mendoza.
+ */
 it('returns null for an aerodrome name AEROMET does not cover', function () {
-    expect(aerometStations()->codeForName('EL PALOMAR / HELIPUERTO'))->toBeNull();
+    expect(aerometStations()->codeForName('SAN CARLOS DE BARILOCHE / ARELAUQUEN'))->toBeNull()
+        ->and(aerometStations()->codeForName('JUNÍN DE LOS ANDES / CASA DE LATA'))->toBeNull();
 });

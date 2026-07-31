@@ -160,9 +160,40 @@ class SunCityResolver
      * no sentence left to match against, and asking matchFromText() to re-derive
      * one would be inventing text the user never wrote.
      */
+    /**
+     * The SHN locality whose sun answers for an aerodrome.
+     *
+     * The curated map above comes first because it is the only thing that can
+     * bridge an aerodrome MADHEL files under a city of its own — Ezeiza, Morón
+     * and El Palomar are all "Buenos Aires" to the SHN and to nobody else.
+     *
+     * Everything else falls back to the reference city MADHEL publishes for the
+     * aerodrome, which is exactly the same question asked of the registry
+     * instead of of a hand-written list: CLUB DE PLANEADORES SANTA ROSA sits in
+     * Santa Rosa, and there is no reason for it to be told the sun is a mystery
+     * when the aerodrome across town is not. That is the whole of it — an exact
+     * name match, no fuzziness — because a locality matched loosely is a
+     * sunset from the wrong place, which is worse than no sunset at all.
+     */
     public function cityFor(string $anacCode): ?string
     {
-        return self::AERODROME_CITIES[$anacCode] ?? null;
+        if (isset(self::AERODROME_CITIES[$anacCode])) {
+            return self::AERODROME_CITIES[$anacCode];
+        }
+
+        $reference = $this->airports->find($anacCode)?->city_reference;
+
+        if ($reference === null) {
+            return null;
+        }
+
+        foreach (ShnSunService::CITIES as $city) {
+            if ($this->normalize($city) === $this->normalize(trim($reference))) {
+                return $city;
+            }
+        }
+
+        return null;
     }
 
     protected function normalize(string $text): string

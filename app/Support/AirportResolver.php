@@ -44,14 +44,22 @@ class AirportResolver
      *
      * Only the words that name a topic, plus the two that glue them to the
      * code. Articles are deliberately absent: with "el" on the list, "el gas"
-     * would resolve to GAS.
+     * would resolve to GAS. So are the interrogatives, for the same reason —
+     * "que" would put "que ver" one word away from resolving to VER.
+     *
+     * The runway-wind vocabulary is on it because that topic asks about a
+     * place like every other one: "viento en pista osa" is the same question
+     * as "metar osa", and without these words it was not read as one — worse,
+     * "pista" would then match CORONEL SUÁREZ / LA PISTA by name and answer
+     * for somewhere else entirely.
      *
      * @var array<int, string>
      */
     protected const QUESTION_WORDS = [
         'info', 'informacion', 'datos', 'ficha', 'aerodromo', 'aeropuerto',
         'notam', 'notams', 'metar', 'speci', 'taf', 'pronarea', 'aeromet',
-        'crepusculo', 'de', 'del', 'en',
+        'crepusculo', 'viento', 'pista', 'cruzado', 'crosswind', 'componente',
+        'cabecera', 'de', 'del', 'en',
     ];
 
     /**

@@ -307,6 +307,10 @@ it('says so when there is no observation published', function () {
  * JUNÍN (SAAJ) is also an AEROMET station under the same name — see
  * AerometStationResolver::STATIONS — so an empty METAR for it offers a way
  * to try the SMN's wider network instead of a dead end.
+ *
+ * The aerodrome rides in the payload alongside the station code: a station
+ * covers a locality, and the answer behind the tap has to know which
+ * aerodrome's runways the question was about.
  */
 it('offers to check AEROMET under a metar that came back empty', function () {
     fakeAnac();
@@ -317,20 +321,23 @@ it('offers to check AEROMET under a metar that came back empty', function () {
 
     expect($reply->button)->not->toBeNull()
         ->and($reply->button->contentSid)->toBe('HXaeromet')
-        ->and($reply->button->payloadValue)->toBe('87548');
+        ->and($reply->button->payloadValue)->toBe('87548:NIN');
 });
 
 /**
- * EZEIZA has no entry of its own in AEROMET's 119-station list (it is
- * covered by neighbouring stations instead), so there is nothing honest to
- * offer and no button rides on the message.
+ * GENERAL ACHA (SAEA) is nowhere in AEROMET's 119-station list, under its own
+ * name or its locality's, so there is nothing honest to offer and no button
+ * rides on the message.
  */
 it('does not offer AEROMET when the aerodrome is not one of its stations', function () {
     fakeAnac();
     fakeMetar(Http::response(smnFixture('metar-empty.html')));
     config(['services.twilio.content_sid_aeromet' => 'HXaeromet']);
 
-    expect(bot()->reply('metar eze')->button)->toBeNull();
+    $reply = bot()->reply('metar general acha');
+
+    expect($reply->messages[0])->toContain('No hay METAR publicado')
+        ->and($reply->button)->toBeNull();
 });
 
 it('offers notams, metar and taf in the help text', function () {
@@ -1562,6 +1569,57 @@ it('does not hijack an aerodrome whose name contains "pista"', function () {
     expect($service->lastContext()->topic)->toBe('notam');
 });
 
+/**
+ * The mirror image of the test above, and the one that bit: the word travels
+ * the other way too. "pista" matches CORONEL SUÁREZ / LA PISTA by name, and
+ * OSA is an ambiguous code that needs capitals to be read as one — so every
+ * one of these used to answer for Coronel Suárez instead of Santa Rosa.
+ */
+it('does not let the words that named the topic name an aerodrome as well', function (string $message) {
+    fakeMetar();
+
+    $service = bot();
+    $service->reply($message);
+
+    expect($service->lastContext()->anacCode)->toBe('OSA');
+})->with([
+    'viento en pista osa',
+    'viento en la pista de osa',
+    'viento cruzado en pista de osa',
+    'que pista uso en osa',
+    'viento en pista santa rosa',
+]);
+
+/**
+ * With nothing but the question left, there is no aerodrome in the message —
+ * which is the help text's answer, not a random one. It matters more than it
+ * looks: "Viento en pista" is the button's own caption, and that is what
+ * arrives as plain text if a tap ever reaches the message path without its
+ * payload.
+ */
+it('asks rather than answering for a place the message never named', function (string $message) {
+    fakeAnac();
+
+    expect(bot()->reply($message)->messages[0])->toContain('Decime el aeropuerto que te interesa');
+})->with(['viento en pista', 'aeropuerto', 'viento cruzado']);
+
+/**
+ * The stripping must not reach past the topic's own words: an ambiguous code
+ * still earns its match by being typed in capitals, and the guards that rule
+ * has always carried are unchanged.
+ */
+it('leaves the rest of the message exactly as it was typed', function () {
+    fakeAnac();
+
+    $service = bot();
+
+    $service->reply('notams VER');
+    expect($service->lastContext()->anacCode)->toBe('VER');
+
+    $service->reply('quiero ver los notams de eze');
+    expect($service->lastContext()->anacCode)->toBe('EZE');
+});
+
 it('answers a tap on the runway-wind button', function () {
     fakeMetar();
     seedEzeizaRunways();
@@ -1624,23 +1682,172 @@ it('says so plainly when it has no runway headings on file', function () {
 });
 
 /**
- * No wind, no component. The AEROMET offer is the same dead-end handling the
- * METAR reply already uses: not a promise the tap will find anything, just a
- * next thing to try.
+ * No METAR is no longer no answer. JUNÍN is also an AEROMET station, and its
+ * SYNOP carries a wind — a measurement from elsewhere in the same locality,
+ * which is why the message says where it came from before it says what it
+ * means for a runway.
  */
-it('offers AEROMET when there is no METAR to compute a component from', function () {
+function seedJuninRunways(): void
+{
+    foreach (['18' => 172, '36' => 352] as $designator => $heading) {
+        Runway::create([
+            'anac_code' => 'NIN',
+            'designator' => $designator,
+            'heading_true' => $heading,
+            'is_closed' => false,
+            'source' => 'madhel',
+        ]);
+    }
+}
+
+it('computes the component off the AEROMET wind when there is no METAR', function () {
     fakeMetar(Http::response(smnFixture('metar-empty.html')));
-    config(['services.twilio.content_sid_aeromet' => 'HXaeromet']);
+    fakeAeromet();
+    seedJuninRunways();
+
+    $body = implode("\n", bot()->reply('viento cruzado en junin', PHONE)->messages);
+
+    expect($body)->toContain('el componente sale del viento de la estación AEROMET *JUNIN*')
+        ->toContain('observación de las 30 - 17:00 UTC')
+        ->toContain('Viento del 050° (NE) a 14 kt')
+        ->toContain('✅ RWY 36');
+});
+
+/**
+ * The one honest dead end left: neither network observes the place. GENERAL
+ * ACHA has a METAR that is empty right now and no AEROMET station of its own.
+ */
+it('says there is no wind to compute from when neither network has one', function () {
+    fakeMetar(Http::response(smnFixture('metar-empty.html')));
+    fakeAeromet();
 
     Runway::create([
-        'anac_code' => 'NIN', 'designator' => '18', 'heading_true' => 172,
+        'anac_code' => 'ACH', 'designator' => '17', 'heading_true' => 170,
         'is_closed' => false, 'source' => 'madhel',
     ]);
 
-    $reply = bot()->reply('viento cruzado en junin', PHONE);
+    expect(bot()->reply('viento cruzado en general acha', PHONE)->messages[0])
+        ->toContain('No hay METAR publicado');
+});
 
-    expect($reply->messages[0])->toContain('No hay METAR publicado')
-        ->and($reply->button->contentSid)->toBe('HXaeromet');
+/*
+|--------------------------------------------------------------------------
+| El viento en pista de un aeródromo sin METAR
+|--------------------------------------------------------------------------
+|
+| CORONEL SUÁREZ / LA PISTA (CLP) has no OACI code, so the SMN will never
+| publish a METAR for it — but AEROMET observes its locality, and that wind is
+| what the components are computed from. The whole chain hangs together: the
+| empty-METAR answer offers AEROMET, the AEROMET answer offers the components,
+| and the components come back off the SYNOP.
+|
+*/
+
+function seedCoronelSuarezRunways(): void
+{
+    foreach (['01' => 5, '19' => 185] as $designator => $heading) {
+        Runway::create([
+            'anac_code' => 'CLP',
+            'designator' => $designator,
+            'heading_true' => $heading,
+            'is_closed' => false,
+            'source' => 'madhel',
+        ]);
+    }
+}
+
+/**
+ * The same getsynop line shape as ogimet-junin.txt, for Coronel Suárez —
+ * "81912" is the Nddff group, 190° at 12 kt, which RWY 19 faces almost
+ * squarely and RWY 01 has behind it.
+ */
+function fakeCoronelSuarezAeromet(): void
+{
+    fakeAeromet(Http::response(ogimetFixture('ogimet-coronel-suarez.txt')));
+}
+
+it('offers AEROMET under an aerodrome that will never have a METAR', function () {
+    Http::fake();
+    config(['services.twilio.content_sid_aeromet' => 'HXaeromet']);
+
+    $reply = bot()->reply('metar coronel suarez la pista');
+
+    expect($reply->messages[0])->toContain('no tiene código OACI')
+        ->and($reply->button->contentSid)->toBe('HXaeromet')
+        ->and($reply->button->payloadValue)->toBe('87637:CLP');
+});
+
+/**
+ * The aerodrome rides in the payload because the station cannot give it back:
+ * Coronel Suárez the locality holds three aerodromes, and the question was
+ * about one of them.
+ */
+it('offers the runway components for the aerodrome the AEROMET offer came from', function () {
+    fakeCoronelSuarezAeromet();
+    seedCoronelSuarezRunways();
+    config(['services.twilio.content_sid_pista' => 'HXpista']);
+
+    $service = bot();
+    $reply = $service->reply('Consultar AEROMET', PHONE, 'aeromet:87637:CLP');
+
+    expect($service->lastContext()->anacCode)->toBe('CLP')
+        ->and($reply->messages[0])->toContain('AEROMET CORONEL SUAREZ')
+        ->and($reply->button->contentSid)->toBe('HXpista')
+        ->and($reply->button->payloadValue)->toBe('CLP');
+});
+
+it('computes the runway components of an aerodrome with no OACI code off the AEROMET wind', function () {
+    fakeCoronelSuarezAeromet();
+    seedCoronelSuarezRunways();
+
+    $body = implode("\n", bot()->reply('viento en pista', PHONE, 'pista:CLP')->messages);
+
+    expect($body)->toContain('el componente sale del viento de la estación AEROMET *CORONEL SUAREZ*')
+        ->toContain('Viento del 190°')
+        ->toContain('✅ RWY 19')
+        ->toContain('AAXX 30174 87637');
+});
+
+/**
+ * Without runways there is nothing to compute whatever the wind is doing, so
+ * the answer is the ficha's own gap — and AEROMET, which at least has the wind
+ * itself, is offered instead.
+ */
+it('offers AEROMET instead when it has no runway headings for an aerodrome with no METAR', function () {
+    Http::fake();
+    config(['services.twilio.content_sid_aeromet' => 'HXaeromet']);
+
+    $reply = bot()->reply('viento en pista', PHONE, 'pista:CLP');
+
+    expect($reply->messages[0])->toContain('No tengo los rumbos de pista')
+        ->and($reply->button->payloadValue)->toBe('87637:CLP');
+});
+
+/**
+ * A typed "aeromet junin" has only the station's name to go on, and it is
+ * enough here: JUNÍN wins AirportResolver's ranking outright, so the offer is
+ * made for its own aerodrome.
+ */
+it('offers the runway components under an aeromet answer reached by typing', function () {
+    fakeAeromet();
+    seedJuninRunways();
+    config(['services.twilio.content_sid_pista' => 'HXpista']);
+
+    $reply = bot()->reply('aeromet junin', PHONE);
+
+    expect($reply->button->contentSid)->toBe('HXpista')
+        ->and($reply->button->payloadValue)->toBe('SAAJ');
+});
+
+/**
+ * The offer stands alone, so it is only made when there is something behind
+ * it — no runway headings on file, no offer, same rule as under a NOTAM.
+ */
+it('does not offer the runway components when it has no headings for the station aerodrome', function () {
+    fakeAeromet();
+    config(['services.twilio.content_sid_pista' => 'HXpista']);
+
+    expect(bot()->reply('aeromet junin', PHONE)->button)->toBeNull();
 });
 
 /**
@@ -1781,8 +1988,17 @@ it('splits a notam that carries a button to the smaller template budget', functi
 |
 */
 
+/**
+ * The SHN is stubbed here rather than in each test because the ficha reads it
+ * for every aerodrome whose city it covers, and Santa Rosa is one — a ficha
+ * test that forgot would be reaching hidro.gov.ar for real. Stubs merge and the
+ * first match wins, so a test that needs the SHN to fail can still say so by
+ * faking it before calling this.
+ */
 function seedSantaRosaFicha(): void
 {
+    fakeShnSun();
+
     Airport::where('anac_code', 'OSA')->update([
         'iata_code' => 'RSA',
         'fir' => 'SAEF',
@@ -1929,6 +2145,78 @@ it('lists an unpaired runway end on its own', function () {
     Runway::where('anac_code', 'OSA')->where('designator', '19')->delete();
 
     expect(bot()->reply('osa')->messages[0])->toContain('• 01 — 2300 × 30 m');
+});
+
+/*
+|--------------------------------------------------------------------------
+| El sol en la ficha
+|--------------------------------------------------------------------------
+|
+| Salida and puesta ride at the foot of the ficha — the one thing in it that
+| does not come off a local table. Which is why every test here is also about
+| what happens when it cannot be had: the ficha answers a question about the
+| place itself and must not be able to fail because a website was down.
+|
+*/
+
+it('closes the ficha with today Sun', function () {
+    seedSantaRosaFicha();
+
+    expect(bot()->reply('osa')->messages[0])
+        ->toContain('*Sol de hoy* — _SHN, SANTA ROSA_')
+        ->toContain('• Salida: 11:15 UTC (08:15 local)')
+        ->toContain('• Puesta: 21:31 UTC (18:31 local)');
+});
+
+/**
+ * The SHN publishes by city and MADHEL files every aerodrome under the one it
+ * belongs to, so the registry answers for the aerodromes the curated map never
+ * named: the gliding club and the municipal strip share Santa Rosa's sunset
+ * with the airport across town.
+ */
+it('takes the city from the registry for an aerodrome the map never named', function () {
+    fakeShnSun();
+    Airport::where('anac_code', 'ELP')->update([
+        'city_reference' => 'Santa Rosa',
+        'state' => 'LA PAMPA',
+        'details_updated_at' => now(),
+    ]);
+
+    expect(bot()->reply('elp')->messages[0])
+        ->toContain('EL PAMPERO')
+        ->toContain('*Sol de hoy* — _SHN, SANTA ROSA_')
+        ->toContain('• Puesta: 21:31 UTC (18:31 local)');
+});
+
+/**
+ * A city the SHN does not publish is the ordinary case — 34 localities against
+ * 712 aerodromes — and it costs nothing: no section, and no request either.
+ */
+it('says nothing about the sun for a city the SHN does not publish', function () {
+    Http::fake();
+
+    Airport::where('anac_code', 'CIF')->update([
+        'city_reference' => 'Arrecifes',
+        'details_updated_at' => now(),
+    ]);
+
+    expect(bot()->reply('info cif')->messages[0])->not->toContain('Sol de hoy');
+
+    Http::assertNothingSent();
+});
+
+/**
+ * Stubs merge and the first match wins, so faking the failure before seeding
+ * is what makes this the SHN's answer rather than the fixture's.
+ */
+it('still answers the ficha when the SHN cannot be reached', function () {
+    fakeShnSun(Http::response('Server Error', 500));
+    seedSantaRosaFicha();
+
+    expect(bot()->reply('osa')->messages[0])
+        ->not->toContain('Sol de hoy')
+        ->toContain('01/19 — 2300 × 30 m')
+        ->toContain('Elevación 192 m (630 ft)');
 });
 
 it('calls a heliport a heliport', function () {

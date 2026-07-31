@@ -180,14 +180,27 @@ class AerometStationResolver
      * text instead (see the class docblock). Normalized the same way
      * codeFromText() normalizes, so an accent — ANAC's own "JUNÍN" against
      * this class's "JUNIN" — is never the reason a real match is missed.
+     *
+     * ANAC names most aerodromes "LOCALIDAD / NOMBRE DEL AERÓDROMO" — "CORONEL
+     * SUÁREZ / LA PISTA" — where AEROMET names a station after one or the
+     * other: usually the locality, sometimes the aerodrome itself ("BUENOS
+     * AIRES / AEROPARQUE J. NEWBERY", "SANTA FE / SAUCE VIEJO"). So each half
+     * is tried in turn.
+     *
+     * Each stays an exact comparison rather than becoming a substring search:
+     * "SAN CARLOS DE BARILOCHE" contains AEROMET's "SAN CARLOS", a station in
+     * Mendoza 900 km away. A missing button is a small loss; a wind from the
+     * wrong province is not.
      */
     public function codeForName(string $name): ?string
     {
-        $normalized = $this->normalize($name);
+        foreach ([$name, ...explode('/', $name)] as $candidate) {
+            $normalized = $this->normalize(trim($candidate));
 
-        foreach (self::STATIONS as $stationName => $code) {
-            if ($this->normalize($stationName) === $normalized) {
-                return $code;
+            foreach (self::STATIONS as $stationName => $code) {
+                if ($this->normalize($stationName) === $normalized) {
+                    return $code;
+                }
             }
         }
 

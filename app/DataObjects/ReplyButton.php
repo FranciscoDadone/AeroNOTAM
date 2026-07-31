@@ -55,13 +55,18 @@ final readonly class ReplyButton
      * already subscribed — the other button would offer them something they
      * already have — and this offer should not disappear just because the watch
      * one has nothing left to say.
+     *
+     * $code is the aerodrome's OACI code where it has one and its ANAC
+     * indicator where it does not — the components are computed off AEROMET's
+     * wind for those, so the offer is made there too, and both the button
+     * grammar and AirportResolver::resolve() take either.
      */
-    public static function runwayWind(string $icaoCode): self
+    public static function runwayWind(string $code): self
     {
         return new self(
             contentSid: (string) config('services.twilio.content_sid_pista'),
-            payloadValue: $icaoCode,
-            fallbackHint: "_Respondeme «viento en pista {$icaoCode}» y te paso el componente en cada cabecera._",
+            payloadValue: $code,
+            fallbackHint: "_Respondeme «viento en pista {$code}» y te paso el componente en cada cabecera._",
         );
     }
 
@@ -83,15 +88,24 @@ final readonly class ReplyButton
 
     /**
      * "No METAR here, but AEROMET might have something." Offered under a METAR
-     * that came back empty, for the aerodromes AEROMET also covers under the
-     * same name — no promise the tap will find anything either, just a next
+     * that came back empty — or under an aerodrome that has no ICAO code and
+     * so will never have one — for the aerodromes AEROMET also covers under
+     * the same name. No promise the tap will find anything either, just a next
      * thing to try instead of a dead end.
+     *
+     * The aerodrome rides along with the station code when there is one,
+     * because it is not recoverable from the other side: a WMO/OMM code names
+     * a station, and a station covers a locality that may hold three
+     * aerodromes (Coronel Suárez has three) or none at all. Keeping it means
+     * the AEROMET answer can offer the runway components for the aerodrome the
+     * question was actually about, rather than for whichever one a name
+     * lookup would land on.
      */
-    public static function aeromet(string $code, string $stationName): self
+    public static function aeromet(string $code, string $stationName, ?string $anacCode = null): self
     {
         return new self(
             contentSid: (string) config('services.twilio.content_sid_aeromet'),
-            payloadValue: $code,
+            payloadValue: $anacCode === null ? $code : "{$code}:{$anacCode}",
             fallbackHint: "_Respondeme «aeromet {$stationName}» y te paso lo que tenga el SMN de esa estación._",
         );
     }

@@ -1,0 +1,59 @@
+{
+    "the_geom": {
+        "type": "Feature",
+        "geometry": {
+            "coordinates": [
+                -64.2758333333333,
+                -36.5883333333333
+            ],
+            "type": "Point"
+        },
+        "properties": {
+            "gg_point_coordinates": [
+                -36.5883333333333,
+                -64.2758333333333
+            ],
+            "name": "SANTA ROSA - (OSA / SAZR) - DRCE - PÚBLICO CONTROLADO"
+        }
+    },
+    "type": "AD",
+    "human_readable_identifier": "SANTA ROSA - (OSA / SAZR) - DRCE - PÚBLICO CONTROLADO",
+    "data": {
+        "local": "OSA",
+        "rwy": [],
+        "fuel": "",
+        "telephone": [],
+        "service_schedule": "",
+        "human_readable_identifier": "SANTA ROSA - (OSA / SAZR) - DRCE - PÚBLICO CONTROLADO"
+    },
+    "metadata": {
+        "is_granted": true,
+        "usage": null,
+        "localization": {
+            "coordinates": {
+                "lat": -36.5883333333333,
+                "lng": -64.2758333333333
+            },
+            "fir": "SAEF",
+            "distance_reference": "4.5",
+            "city_reference": "Santa Rosa",
+            "direction_reference": "NNE",
+            "elevation": 192,
+            "state": "LA PAMPA",
+            "region": "RACE"
+        },
+        "reference_sketch": "",
+        "traffic": "NTL",
+        "status": "OK",
+        "sna": true,
+        "condition": "PUBLICO",
+        "ansp": "EANA",
+        "control": "CONTROLLED",
+        "identifiers": {
+            "icao": "SAZR",
+            "iata": "RSA",
+            "local": "OSA"
+        }
+    },
+    "updated_at": "2024-02-06T15:18:08Z"
+}

@@ -58,6 +58,33 @@ it('does not mistake a Spanish word for the aerodrome that shares its code', fun
 });
 
 /**
+ * The capitals rule above costs something now that a lone place name answers
+ * with the ficha: "osa" is exactly how somebody asks about Santa Rosa, and
+ * nobody sends a three-letter message about a bear. So it is relaxed for a
+ * message that is nothing *but* the code — and for nothing else, which is what
+ * keeps the sentence the rule exists for out.
+ */
+it('reads a message that is only a code as that code', function (string $message, ?string $expected) {
+    expect(resolver()->matchFromText($message))->toBe($expected);
+})->with([
+    'lowercase ambiguous anac code' => ['osa', 'OSA'],
+    'the same code in capitals' => ['OSA', 'OSA'],
+    'with the punctuation somebody types' => ['osa?', 'OSA'],
+    'lowercase icao code' => ['sazr', 'OSA'],
+    // The same question with the topic said out loud is still just the code.
+    'with the topic named' => ['info osa', 'OSA'],
+    'with the topic and the glue words' => ['notams del aeropuerto de osa', 'OSA'],
+    // Five tokens the list cannot account for, so the relaxation never applies
+    // and the capitals rule is back in force.
+    'the sentence the capitals rule exists for' => ['la osa mayor se ve de noche', null],
+    // "el" is deliberately not a question word: with it on the list this would
+    // resolve to GAS.
+    'an article plus a word that is also a code' => ['el gas', null],
+    'an ordinary word that is not a code' => ['hola', null],
+    'a sentence with no aerodrome in it' => ['salgo el sabado', null],
+]);
+
+/**
  * PCRE without /u works on bytes, and both bytes of "ñ" count as word
  * boundaries — which made "mañana" a mention of ANA, Paraná's aeroclub.
  */

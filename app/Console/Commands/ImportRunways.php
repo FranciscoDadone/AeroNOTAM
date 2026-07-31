@@ -14,7 +14,8 @@ use Throwable;
 
 /**
  * Fills the runways table, so the bot can answer which end of an aerodrome the
- * wind favours and how much of it lands across the runway.
+ * wind favours and how much of it lands across the runway — and, since the
+ * ficha, how long each runway is, how wide, of what and whether it is lit.
  *
  * Two sources, because neither is enough on its own. MADHEL is ANAC's own
  * registry and the one to believe, but it publishes an empty runway list for
@@ -89,10 +90,13 @@ class ImportRunways extends Command
 
                 $ends = MadhelRunways::parse($entries);
                 $source = 'madhel';
+                $open = $airport->icao_code === null ? [] : ($openEnds[$airport->icao_code] ?? []);
 
-                if ($ends === [] && $airport->icao_code !== null) {
-                    $ends = $openEnds[$airport->icao_code] ?? [];
+                if ($ends === []) {
+                    $ends = $open;
                     $source = 'ourairports';
+                } else {
+                    $ends = $this->fillGaps($ends, $open);
                 }
 
                 if ($ends === []) {
@@ -164,6 +168,44 @@ class ImportRunways extends Command
     }
 
     /**
+     * Fill in what MADHEL left blank from OurAirports, end by end.
+     *
+     * The same bargain the heading already strikes, applied to the rest of the
+     * strip: MADHEL decides which runways exist — it is ANAC's own registry and
+     * OurAirports has never heard of most of the small aerodromes — but where
+     * it publishes a designator and nothing else, a figure from the open
+     * registry beats no figure at all. Lighting is the usual case: MADHEL
+     * mentions it on a handful of entries, OurAirports carries it for 91 of the
+     * 233 Argentine runways.
+     *
+     * Only gaps are filled. A value MADHEL did publish is never replaced, and
+     * an end OurAirports has that MADHEL does not is never added — that would
+     * be the open registry deciding which runways an aerodrome has.
+     *
+     * @param  array<int, array<string, mixed>>  $ends
+     * @param  array<int, array<string, mixed>>  $open
+     * @return array<int, array<string, mixed>>
+     */
+    protected function fillGaps(array $ends, array $open): array
+    {
+        if ($open === []) {
+            return $ends;
+        }
+
+        $byDesignator = array_column($open, null, 'designator');
+
+        return array_map(function (array $end) use ($byDesignator) {
+            $other = $byDesignator[$end['designator']] ?? [];
+
+            foreach (['length_m', 'width_m', 'surface', 'is_lighted'] as $field) {
+                $end[$field] ??= $other[$field] ?? null;
+            }
+
+            return $end;
+        }, $ends);
+    }
+
+    /**
      * Write one aerodrome's ends, and drop the ones that are no longer listed.
      *
      * The delete is what lets a renumbering land. Magnetic drift eventually
@@ -171,7 +213,7 @@ class ImportRunways extends Command
      * this the old pair would linger forever alongside the new one, offering a
      * pilot a cabecera that no longer exists.
      *
-     * @param  array<int, array{designator: string, is_closed: bool, heading_true?: int|null}>  $ends
+     * @param  array<int, array{designator: string, is_closed: bool, heading_true?: int|null, length_m?: int|null, width_m?: int|null, surface?: string|null, is_lighted?: bool|null}>  $ends
      */
     protected function store(Airport $airport, array $ends, string $source, float $variation): void
     {
@@ -186,6 +228,10 @@ class ImportRunways extends Command
                 'heading_true' => $this->headingFor($designator, $end['heading_true'] ?? null, $variation),
                 'is_closed' => $end['is_closed'],
                 'source' => $source,
+                'length_m' => $end['length_m'] ?? null,
+                'width_m' => $end['width_m'] ?? null,
+                'surface' => $end['surface'] ?? null,
+                'is_lighted' => $end['is_lighted'] ?? null,
                 'created_at' => now(),
                 'updated_at' => now(),
             ];
@@ -194,7 +240,7 @@ class ImportRunways extends Command
         Runway::upsert(
             array_values($rows),
             ['anac_code', 'designator'],
-            ['heading_true', 'is_closed', 'source', 'updated_at'],
+            ['heading_true', 'is_closed', 'source', 'length_m', 'width_m', 'surface', 'is_lighted', 'updated_at'],
         );
 
         Runway::query()

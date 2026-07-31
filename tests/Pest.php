@@ -67,6 +67,50 @@ function fakeMadhel(mixed $response = null): void
 }
 
 /**
+ * One aerodrome's MADHEL detail response, captured verbatim from
+ * datos.anac.gob.ar and trimmed to the blocks the ficha reads.
+ *
+ * Two of them, because the registry has two shapes and the difference is the
+ * whole design problem: OSA (Santa Rosa) is delegated to the AIP, so its
+ * `metadata` is full and its `data` is empty; CIF (Arrecifes) is not, so it
+ * carries the runway, the fuel and the telephone that the delegated ones never
+ * do.
+ *
+ * @return array<string, mixed>
+ */
+function madhelDetailFixture(string $anacCode): array
+{
+    return json_decode(file_get_contents(__DIR__."/Fixtures/madhel/detail/{$anacCode}.json"), true);
+}
+
+/**
+ * Stub MADHEL's per-aerodrome endpoint with those fixtures, plus whatever else
+ * a test wants to add. Anything not named comes back as a record with empty
+ * blocks — which is a real MADHEL response, not a failure.
+ *
+ * Separate from fakeMadhel(): that one stubs the list endpoint the registry
+ * import reads, and its pattern would swallow these.
+ *
+ * @param  array<string, mixed>  $extra  Extra records to serve, keyed by ANAC code.
+ */
+function fakeMadhelDetails(array $codes = ['OSA', 'CIF'], array $extra = []): void
+{
+    $fakes = [];
+
+    foreach ($codes as $code) {
+        $fakes["*/madhel/api/v2/airports/{$code}/*"] = Http::response(madhelDetailFixture($code));
+    }
+
+    foreach ($extra as $code => $record) {
+        $fakes["*/madhel/api/v2/airports/{$code}/*"] = is_array($record) ? Http::response($record) : $record;
+    }
+
+    $fakes['*'] = Http::response(['data' => [], 'metadata' => []]);
+
+    Http::fake($fakes);
+}
+
+/**
  * HTML captured verbatim from ssl.smn.gob.ar/mensajes — the legacy application
  * that www.smn.gob.ar/metar and /taf embed in an iframe. Same reasoning as the
  * ANAC fixtures: the scraper is the only thing standing between us and a
@@ -305,5 +349,6 @@ function withButtonTemplates(): void
         'services.twilio.content_sid_menu_metar' => 'HXmenumetar',
         'services.twilio.content_sid_menu_taf' => 'HXmenutaf',
         'services.twilio.content_sid_menu_crepusculo' => 'HXmenusol',
+        'services.twilio.content_sid_menu_info' => 'HXmenuinfo',
     ]);
 }

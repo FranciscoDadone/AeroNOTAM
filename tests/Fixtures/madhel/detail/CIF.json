@@ -1,0 +1,63 @@
+{
+    "the_geom": {
+        "type": "Feature",
+        "geometry": {
+            "coordinates": [
+                -60.04602,
+                -34.07849
+            ],
+            "type": "Point"
+        },
+        "properties": {
+            "gg_point_coordinates": [
+                -34.07849,
+                -60.04602
+            ],
+            "name": "ARRECIFES / AEROCLUB - (CIF) - DRCE - PRIVADO NO CONTROLADO"
+        }
+    },
+    "type": "AD",
+    "human_readable_identifier": "ARRECIFES / AEROCLUB - (CIF) - DRCE - PRIVADO NO CONTROLADO",
+    "data": {
+        "local": "CIF",
+        "rwy": [
+            "02/20 550x20 M - Tierra."
+        ],
+        "fuel": "AVGAS 100LL",
+        "telephone": [
+            "(02478) 15-504877"
+        ],
+        "service_schedule": "",
+        "human_readable_identifier": "ARRECIFES / AEROCLUB - (CIF) - DRCE - PRIVADO NO CONTROLADO"
+    },
+    "metadata": {
+        "is_granted": false,
+        "usage": null,
+        "localization": {
+            "coordinates": {
+                "lat": -34.07849,
+                "lng": -60.04602
+            },
+            "fir": "SAEF",
+            "distance_reference": "4.5",
+            "city_reference": "Arrecifes",
+            "direction_reference": "ESE",
+            "elevation": 43,
+            "state": "BUENOS AIRES",
+            "region": "RACE"
+        },
+        "reference_sketch": "",
+        "traffic": "NTL",
+        "status": "OK",
+        "sna": false,
+        "condition": "PRIVADO",
+        "ansp": null,
+        "control": "NON-CONTROLLED",
+        "identifiers": {
+            "icao": null,
+            "iata": null,
+            "local": "CIF"
+        }
+    },
+    "updated_at": "2025-10-06T10:02:29Z"
+}

@@ -24,6 +24,17 @@ Schedule::command('notams:import-madhel')->weeklyOn(1, '04:00')->withoutOverlapp
 // install has to run this once by hand before the feature answers anything.
 Schedule::command('notams:import-runways')->weeklyOn(1, '05:00')->withoutOverlapping();
 
+// What each aerodrome *is* — distance and bearing from its town, elevation,
+// FIR, fuel, telephone — which is the ficha the bot answers with when a message
+// names a place and asks nothing in particular about it.
+//
+// Behind both imports above because it depends on them: import-madhel decides
+// which aerodromes exist to ask MADHEL about, and this walks that list. Weekly
+// for the same reason as the runways — an aerodrome's elevation and the town it
+// serves change on the scale of decades — and pooled for the same one: MADHEL
+// only carries these on the per-aerodrome record.
+Schedule::command('notams:import-airport-details')->weeklyOn(1, '06:00')->withoutOverlapping();
+
 // Every ten minutes lines up with the METAR cache TTL, so a round costs at most
 // one request per watched station however many people are watching it. Faster
 // would only re-read the cache; slower would mean learning about a SPECI — the

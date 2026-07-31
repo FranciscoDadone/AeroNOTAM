@@ -16,7 +16,7 @@ beforeEach(function () {
 });
 
 it('sends one message per notam to the original sender', function () {
-    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque'))
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'notams aeroparque'))
         ->handle(app(WhatsappBotService::class), $this->sender);
 
     expect($this->sender->sent)->toHaveCount(3)
@@ -51,7 +51,7 @@ it('still replies when the typing indicator cannot be shown', function () {
         }
     };
 
-    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque', 'SM123'))
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'notams aeroparque', 'SM123'))
         ->handle(app(WhatsappBotService::class), $sender);
 
     expect($sender->sent)->toHaveCount(3);
@@ -95,7 +95,7 @@ it('declares a retry policy', function () {
 it('sends the menu as a message of its own after the answer', function () {
     withButtonTemplates();
 
-    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque'))
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'notams aeroparque'))
         ->handle(app(WhatsappBotService::class), $this->sender);
 
     expect($this->sender->sent)->toHaveCount(3)
@@ -117,7 +117,7 @@ it('sends the watch offer and the menu as two separate templated messages', func
 });
 
 it('sends nothing extra when no menu template is registered', function () {
-    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque'))
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'notams aeroparque'))
         ->handle(app(WhatsappBotService::class), $this->sender);
 
     expect($this->sender->sent)->toHaveCount(3)

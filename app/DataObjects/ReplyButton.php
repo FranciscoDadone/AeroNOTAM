@@ -132,6 +132,7 @@ final readonly class ReplyButton
         'metar' => ['notam', 'taf', 'crepusculo'],
         'taf' => ['notam', 'metar', 'crepusculo'],
         'crepusculo' => ['notam', 'metar', 'taf'],
+        'info' => ['notam', 'metar', 'taf'],
     ];
 
     protected static function menuHint(string $topic, string $code): string

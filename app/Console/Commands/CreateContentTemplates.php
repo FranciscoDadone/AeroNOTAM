@@ -11,11 +11,11 @@ use Twilio\Rest\Content\V1\ContentModels;
  * Registers the content templates that let a WhatsApp message carry buttons,
  * and prints their SIDs.
  *
- * Eight of them: subscribe under a METAR — alongside the runway-wind offer, the
+ * Nine of them: subscribe under a METAR — alongside the runway-wind offer, the
  * one message that carries two actions — that same offer on its own for a
  * reader who is already subscribed, unsubscribe under an alert, "Consultar
  * AEROMET" under a METAR that came back empty, and one follow-up menu per
- * question topic (NOTAM, METAR, TAF, crepúsculo) offering the other three.
+ * question topic (ficha, NOTAM, METAR, TAF, crepúsculo) offering three others.
  *
  * WhatsApp renders at most three quick replies on a message, which is the whole
  * reason the shape is what it is: the menus are already at three, so a fifth
@@ -213,6 +213,22 @@ class CreateContentTemplates extends Command
                 'body_sample' => $menuSample,
                 'sample' => 'SAEZ',
                 'actions' => [
+                    ['title' => '✈️ NOTAMs', 'id' => 'ask:notam:{{2}}'],
+                    ['title' => '🌦️ METAR', 'id' => 'ask:metar:{{2}}'],
+                    ['title' => '🔭 TAF', 'id' => 'ask:taf:{{2}}'],
+                ],
+            ],
+            'TWILIO_CONTENT_SID_MENU_INFO' => [
+                'friendly_name' => 'notams_menu_info',
+                'body_sample' => $menuSample,
+                'sample' => 'SAEZ',
+                'actions' => [
+                    // The ficha is the default answer now, so this is the menu
+                    // most messages end up under — and the three it offers are
+                    // what is happening at the aerodrome the ficha just
+                    // described. Crepúsculo is the one left out, because
+                    // WhatsApp renders three and it is the least likely next
+                    // question after "where is this place".
                     ['title' => '✈️ NOTAMs', 'id' => 'ask:notam:{{2}}'],
                     ['title' => '🌦️ METAR', 'id' => 'ask:metar:{{2}}'],
                     ['title' => '🔭 TAF', 'id' => 'ask:taf:{{2}}'],

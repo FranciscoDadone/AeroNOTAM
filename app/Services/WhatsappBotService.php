@@ -13,6 +13,7 @@ use App\DataObjects\ReplyMenu;
 use App\DataObjects\SunTimes;
 use App\DataObjects\Taf;
 use App\DataObjects\WhatsappReply;
+use App\Models\Airport;
 use App\Models\MetarSubscription;
 use App\Models\Runway;
 use App\Support\AerometStationResolver;
@@ -32,9 +33,9 @@ use Illuminate\Support\Str;
  *
  * Two things have to be worked out from free text: which aerodrome the user
  * means, and what they want to know about it. The aerodrome is resolved once,
- * up front, and shared by both answers; the question then routes to NOTAMs
- * (the default), to the current METAR, to the forecast, or to a standing
- * "tell me when this changes" watch.
+ * up front, and shared by both answers; the question then routes to the ficha
+ * (the default — what the aerodrome *is*), to its NOTAMs, to the current METAR,
+ * to the forecast, or to a standing "tell me when this changes" watch.
  *
  * A tapped button short-circuits all of that. The payload behind it is an
  * identifier this service emitted itself, so acting on it needs no keyword
@@ -145,6 +146,22 @@ class WhatsappBotService
     ];
 
     /**
+     * Words that ask what an aerodrome *is* rather than what is happening at
+     * it: where it is, how high, what its runways are made of, whether there
+     * is fuel and who to call.
+     *
+     * Matched last of all the topics, which is what lets them be this broad.
+     * "aeropuerto" is in here and appears in half the messages the bot gets —
+     * "hay notams en el aeropuerto de Córdoba" reaches the NOTAM branch first
+     * and never gets this far.
+     */
+    protected const INFO_KEYWORDS = [
+        'info', 'informacion', 'datos', 'ficha', 'aerodromo', 'aeropuerto',
+        'combustible', 'elevacion', 'telefono', 'contacto', 'superficie',
+        'donde queda', 'donde esta', 'largo de pista',
+    ];
+
+    /**
      * How the SHN's month names are spelled in ordinary text, for a question
      * like "crepusculo en salta el 15 de agosto". Accent-stripped, since the
      * message reaching this map already went through Str::ascii().
@@ -194,12 +211,12 @@ class WhatsappBotService
     protected const BUTTON_UNSUBSCRIBE = '/^unsub:([A-Z]{4})$/';
 
     /**
-     * A tap on the follow-up menu: the same four questions reply() itself can
+     * A tap on the follow-up menu: the same five questions reply() itself can
      * answer, with the guessing removed. {3,4} because not every ANAC
      * aerodrome has an ICAO code (Alta Gracia, AGR) and its NOTAM still answer
      * fine without one.
      */
-    protected const BUTTON_ASK = '/^ask:(notam|metar|taf|crepusculo):([A-Z]{3,4})$/';
+    protected const BUTTON_ASK = '/^ask:(notam|metar|taf|crepusculo|info):([A-Z]{3,4})$/';
 
     /**
      * A tap on the "Consultar AEROMET" offer under an empty METAR. The WMO/OMM
@@ -306,6 +323,7 @@ class WhatsappBotService
             'metar' => $this->metarReply($indicator, $from),
             'pista' => $this->runwayWindReply($indicator, $from),
             'pronarea' => $this->pronareaReply($indicator),
+            'info' => $this->infoReply($indicator, $from),
             default => $this->notamReply($indicator, $from),
         };
     }
@@ -351,6 +369,7 @@ class WhatsappBotService
                 'metar' => $this->metarReply($indicator, $from),
                 'taf' => $this->tafReply($indicator, $from),
                 'crepusculo' => $this->sunReplyFor($indicator, $from),
+                'info' => $this->infoReply($indicator, $from),
                 default => $this->notamReply($indicator, $from),
             };
         }
@@ -398,6 +417,15 @@ class WhatsappBotService
      * every one of their phrases contains "viento" and would otherwise be read
      * as a plain request for the observation — which is the question they are
      * one step past.
+     *
+     * The ficha goes last, and is also the default. Last because its words are
+     * the ones that turn up inside every other kind of question — "hay notams
+     * en el aeropuerto de Córdoba", "cómo está el clima en el aeródromo de
+     * Bariloche" — and each of those has already been claimed by the branch
+     * that reads it properly by the time this one is reached. Default because a
+     * message that is just a place ("osa", "santa rosa") is asking what the
+     * aerodrome is, not what is wrong with it today: NOTAMs answer a question
+     * the reader has not asked yet, and the ficha carries a button to them.
      */
     protected function topic(string $message): string
     {
@@ -415,7 +443,8 @@ class WhatsappBotService
             preg_match('/\btaf\b/', $normalized) === 1 => 'taf',
             $this->mentions($normalized, self::TAF_KEYWORDS) => 'taf',
             $this->mentions($normalized, self::METAR_KEYWORDS) => 'metar',
-            default => 'notam',
+            $this->mentions($normalized, self::INFO_KEYWORDS) => 'info',
+            default => 'info',
         };
     }
 
@@ -924,6 +953,361 @@ class WhatsappBotService
             : "de frente {$headwind}";
 
         return "{$along} kt · cruzado {$crosswind} kt".($crosswind === 0 ? '' : " ({$side})");
+    }
+
+    /**
+     * What the aerodrome *is*, which is the question a message that names a
+     * place and asks nothing else is really asking.
+     *
+     * Everything here comes off the local tables — notams:import-airport-details
+     * and notams:import-runways put it there — so unlike every other topic
+     * there is no service to fail and nothing to time out.
+     *
+     * The runway-wind offer rides at the foot of it for the same reason it
+     * rides under a NOTAM: the ficha has just listed the cabeceras, and "which
+     * of these does the wind favour right now" is the next thing somebody
+     * looking at that list wants. Better still here than anywhere else, since
+     * the offer is only sent when there are runways on file — which is exactly
+     * when the ficha has a list to have prompted the question.
+     */
+    protected function infoReply(string $indicator, ?string $from): WhatsappReply
+    {
+        $airport = $this->airports->find($indicator);
+
+        if ($airport === null) {
+            return WhatsappReply::of($this->helpMessage());
+        }
+
+        return $this->formatAirportInfo(
+            $airport,
+            $this->runways->forAnacCode($indicator),
+            $this->runwayWindOffer($indicator),
+        )->withMenu($this->menuFor('info', $indicator, $from));
+    }
+
+    /**
+     * The ficha.
+     *
+     * One rule governs the whole thing: a field MADHEL does not publish is
+     * reported as unpublished, never as absent. That an aerodrome has no fuel
+     * line in the registry says nothing about whether there is a pump on the
+     * apron — MADHEL publishes fuel for barely one aerodrome in seven — and a
+     * pilot planning a leg on "no tiene combustible" would be planning it on
+     * something nobody ever said. Same rule NotamEnricher and AerometService
+     * already work under.
+     *
+     * The distinction that makes that honest is between a field MADHEL left
+     * empty and a ficha that was never imported at all. Only the first can be
+     * called "sin dato publicado"; the second is our own gap, and says so.
+     *
+     * @param  array<int, Runway>  $runways
+     * @param  ReplyButton|null  $button  The runway-wind offer, when there is anything behind it.
+     */
+    protected function formatAirportInfo(Airport $airport, array $runways, ?ReplyButton $button = null): WhatsappReply
+    {
+        $header = ($airport->kind === 'HLP' ? '🚁' : '🛬')." *{$airport->name}*";
+
+        // A message that carries a button is a content template, and WhatsApp
+        // caps those far shorter than a plain one. It bites here more than
+        // anywhere: an aerodrome with three runways and a paragraph of opening
+        // hours is a long ficha.
+        $budget = ($button === null ? self::MAX_MESSAGE_LENGTH : self::MAX_TEMPLATE_BODY_LENGTH)
+            - mb_strlen($header) - 12;
+
+        $lines = ['_'.$this->airportSubtitle($airport).'_'];
+
+        if ($airport->is_closed) {
+            $lines[] = '⛔ *Aeródromo cerrado*';
+        }
+
+        $lines[] = '';
+        $lines = array_merge($lines, $this->airportLocationLines($airport));
+
+        $lines[] = '';
+        $lines[] = '*Pistas*';
+        $lines = array_merge($lines, $this->runwayLines($runways));
+
+        $lines[] = '';
+        $lines = array_merge($lines, $this->airportServiceLines($airport));
+
+        if ($airport->is_aip_delegated) {
+            $lines[] = '';
+            $lines[] = '_MADHEL remite a la AIP para este aeródromo: ais.anac.gob.ar/aip_';
+        }
+
+        return WhatsappReply::ofMany(
+            $this->withHeader($header, $this->splitToFit(implode("\n", $lines), $budget)),
+            $button,
+        );
+    }
+
+    /**
+     * "Aeródromo público controlado · OSA / SAZR / RSA" — what kind of place
+     * this is, then every name it answers to.
+     */
+    protected function airportSubtitle(Airport $airport): string
+    {
+        $words = [$airport->kind === 'HLP' ? 'Helipuerto' : 'Aeródromo'];
+
+        // Null when MADHEL does not classify it, which is not the same as
+        // private — so nothing is said rather than something guessed.
+        $words[] = match ($airport->access) {
+            'publico' => 'público',
+            'privado' => 'privado',
+            'militar' => 'militar',
+            default => null,
+        };
+
+        $words[] = $airport->is_controlled ? 'controlado' : 'no controlado';
+
+        // Deduplicated: ANAC and IATA agree at a good few aerodromes (EZE is
+        // both), and "EZE / SAEZ / EZE" reads as a mistake rather than as two
+        // registries happening to concur.
+        $codes = array_unique(array_filter([$airport->anac_code, $airport->icao_code, $airport->iata_code]));
+
+        return implode(' ', array_filter($words)).' · '.implode(' / ', $codes);
+    }
+
+    /**
+     * Where it is: the sentence MADHEL splits into three fields, then the
+     * coordinates and the elevation, then the FIR.
+     *
+     * @return array<int, string>
+     */
+    protected function airportLocationLines(Airport $airport): array
+    {
+        $lines = [];
+        $place = $this->airportPlace($airport);
+
+        if ($place !== null) {
+            $lines[] = "📍 {$place}";
+        }
+
+        if ($airport->latitude !== null && $airport->longitude !== null) {
+            // Indented under the place it belongs to — unless there is no
+            // place line, in which case the coordinates are the location and
+            // an orphan indent would read as a continuation of nothing.
+            $lines[] = ($place === null ? '📍 ' : '   ')
+                .$this->latitude($airport->latitude).' '.$this->longitude($airport->longitude);
+        }
+
+        if ($airport->elevation_m !== null) {
+            // MADHEL publishes metres; aviation flies in feet. Both, rather
+            // than a conversion the reader has to do in their head.
+            $feet = (int) round($airport->elevation_m / 0.3048);
+            $lines[] = "⛰️ Elevación {$airport->elevation_m} m ({$feet} ft)";
+        }
+
+        $region = array_filter([
+            $airport->fir === null ? null : 'FIR '.$this->firName($airport->fir)." ({$airport->fir})",
+            match ($airport->traffic) {
+                'INTL' => 'Tránsito internacional',
+                'NTL' => 'Tránsito nacional',
+                default => null,
+            },
+        ]);
+
+        if ($region !== []) {
+            $lines[] = '🗺️ '.implode(' · ', $region);
+        }
+
+        return $lines === [] ? ['📍 MADHEL no publica la ubicación de este aeródromo.'] : $lines;
+    }
+
+    /**
+     * "4,5 km al nor-noreste de Santa Rosa (La Pampa)".
+     *
+     * MADHEL writes the direction as a compass point, in the Spanish rose most
+     * of the time and the English one occasionally — but for the thirty-one
+     * aerodromes that sit against the town they serve it writes the literal
+     * "Lindando", with a distance of zero. That is not a bearing, and pushing
+     * it through the compass table would either invent one or drop what it
+     * actually says, so a zero distance is phrased as what it means instead.
+     */
+    protected function airportPlace(Airport $airport): ?string
+    {
+        $where = $airport->city_reference;
+
+        if ($where !== null && $airport->state !== null) {
+            $where .= ' ('.$this->titleCase($airport->state).')';
+        }
+
+        $where ??= $airport->state === null ? null : $this->titleCase($airport->state);
+
+        if ($where === null) {
+            return null;
+        }
+
+        if ($airport->distance_km === null || $airport->distance_km <= 0.0) {
+            return $airport->city_reference === null ? $where : "Lindando con {$where}";
+        }
+
+        $distance = str_replace('.', ',', rtrim(rtrim(number_format($airport->distance_km, 1, '.', ''), '0'), '.'));
+        $bearing = $airport->direction_reference === null
+            ? null
+            : Compass::describe($airport->direction_reference);
+
+        return $bearing === null
+            ? "A {$distance} km de {$where}"
+            : "{$distance} km al {$bearing} de {$where}";
+    }
+
+    /**
+     * The five Argentine FIRs by the ICAO code MADHEL publishes. Not the same
+     * vocabulary as PronareaFirResolver's, which uses the short codes the SMN
+     * prints on its own bulletins.
+     */
+    protected function firName(string $fir): string
+    {
+        return match ($fir) {
+            'SAEF' => 'Ezeiza',
+            'SACF' => 'Córdoba',
+            'SAVF' => 'Comodoro Rivadavia',
+            'SARR' => 'Resistencia',
+            'SAMF' => 'Mendoza',
+            default => $fir,
+        };
+    }
+
+    /**
+     * One line per runway rather than per end: both ends of a strip share its
+     * length, width and surface, and "01/19 — 2300 × 30 m" is how a chart
+     * writes it. An end whose opposite is not on file is listed on its own.
+     *
+     * @param  array<int, Runway>  $runways
+     * @return array<int, string>
+     */
+    protected function runwayLines(array $runways): array
+    {
+        if ($runways === []) {
+            return ['Sin pistas publicadas por MADHEL ni OurAirports.'];
+        }
+
+        $byDesignator = [];
+
+        foreach ($runways as $runway) {
+            $byDesignator[$runway->designator] = $runway;
+        }
+
+        $lines = [];
+        $paired = [];
+
+        foreach ($runways as $runway) {
+            if (isset($paired[$runway->designator])) {
+                continue;
+            }
+
+            $paired[$runway->designator] = true;
+            $opposite = $runway->oppositeDesignator();
+            $other = $opposite === null ? null : ($byDesignator[$opposite] ?? null);
+
+            if ($other !== null) {
+                $paired[$other->designator] = true;
+            }
+
+            $parts = [$other === null ? $runway->designator : "{$runway->designator}/{$other->designator}"];
+
+            $parts[] = $this->runwaySize($runway);
+            $parts[] = $runway->surface;
+            // Only when it is lit. A runway nobody has said is lit may still
+            // be, and "no balizada" is a claim about a night landing that no
+            // source here is entitled to make.
+            $parts[] = $runway->is_lighted === true ? 'balizada' : null;
+            $parts[] = $runway->is_closed || $other?->is_closed ? '⛔ cerrada' : null;
+
+            $lines[] = '• '.implode(' — ', array_filter($parts));
+        }
+
+        return $lines;
+    }
+
+    protected function runwaySize(Runway $runway): ?string
+    {
+        return match (true) {
+            $runway->length_m !== null && $runway->width_m !== null => "{$runway->length_m} × {$runway->width_m} m",
+            $runway->length_m !== null => "{$runway->length_m} m de largo",
+            $runway->width_m !== null => "{$runway->width_m} m de ancho",
+            default => null,
+        };
+    }
+
+    /**
+     * Fuel, telephone and opening hours — the three things MADHEL only
+     * publishes for the aerodromes it does not delegate to the AIP.
+     *
+     * Fuel and telephone are named even when there is nothing to say, because
+     * their silence is itself the answer to a question somebody asked; the
+     * opening hours are not, since MADHEL carries them for one aerodrome in
+     * fifteen and a third "sin dato publicado" would be noise rather than
+     * information.
+     *
+     * @return array<int, string>
+     */
+    protected function airportServiceLines(Airport $airport): array
+    {
+        if ($airport->details_updated_at === null) {
+            // Never asked MADHEL about this one. Saying "sin dato publicado"
+            // here would be reporting our own gap as the registry's.
+            return ['_Todavía no importé la ficha de MADHEL de este aeródromo (notams:import-airport-details)._'];
+        }
+
+        $unpublished = 'sin dato publicado en MADHEL';
+
+        $lines = [
+            '⛽ Combustible: '.($airport->fuel ?? $unpublished),
+            '☎️ Teléfono: '.($airport->telephone === null ? $unpublished : implode(' · ', $airport->telephone)),
+        ];
+
+        if ($airport->service_schedule !== null) {
+            $lines[] = "🕐 Horario: {$airport->service_schedule}";
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Degrees-minutes-seconds, the form every aeronautical chart prints and the
+     * only one a pilot can compare against one without converting.
+     */
+    protected function latitude(float $degrees): string
+    {
+        return $this->dms($degrees, 2).($degrees < 0 ? 'S' : 'N');
+    }
+
+    protected function longitude(float $degrees): string
+    {
+        // Three digits, because longitude runs to 180 and a chart pads it.
+        return $this->dms($degrees, 3).($degrees < 0 ? 'O' : 'E');
+    }
+
+    protected function dms(float $degrees, int $pad): string
+    {
+        $total = (int) round(abs($degrees) * 3600);
+
+        return sprintf(
+            '%0'.$pad."d°%02d'%02d\"",
+            intdiv($total, 3600),
+            intdiv($total % 3600, 60),
+            $total % 60,
+        );
+    }
+
+    /**
+     * MADHEL shouts its province names ("LA PAMPA", "SANTA FÉ"). Title case
+     * reads as a place rather than as an alarm, with the connecting words left
+     * down, the way Spanish writes them.
+     */
+    protected function titleCase(string $text): string
+    {
+        $words = explode(' ', mb_convert_case(mb_strtolower($text), MB_CASE_TITLE, 'UTF-8'));
+
+        return implode(' ', array_map(
+            fn (string $word, int $i) => $i > 0 && in_array(mb_strtolower($word), ['de', 'del', 'la', 'las', 'los', 'y', 'e'], true)
+                ? mb_strtolower($word)
+                : $word,
+            $words,
+            array_keys($words),
+        ));
     }
 
     /**
@@ -1781,8 +2165,10 @@ class WhatsappBotService
 
     protected function helpMessage(): string
     {
-        return "¡Hola! 👋 Decime el aeropuerto que te interesa y te paso sus NOTAM activos.\n\n"
-            .'Por ejemplo: _"hay notams en Ezeiza?"_ o _"aeroparque"_ o el código _"EZE"_.'
+        return "¡Hola! 👋 Decime el aeropuerto que te interesa y te paso su ficha: dónde queda, sus pistas, la elevación y qué servicios publica ANAC.\n\n"
+            .'Por ejemplo: _"aeroparque"_, _"santa rosa"_ o el código _"EZE"_.'
+            ."\n\n"
+            .'Si lo que querés son los NOTAM activos, pedímelos: _"hay notams en Ezeiza?"_ o _"notam EZE"_.'
             ."\n\n"
             .'Si querés el estado del tiempo, pedime el METAR: _"metar EZE"_ o _"cómo está el clima en Bariloche?"_.'
             ."\n\n"

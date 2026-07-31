@@ -266,6 +266,7 @@ return [
         'content_sid_menu_metar' => env('TWILIO_CONTENT_SID_MENU_METAR'),
         'content_sid_menu_taf' => env('TWILIO_CONTENT_SID_MENU_TAF'),
         'content_sid_menu_crepusculo' => env('TWILIO_CONTENT_SID_MENU_CREPUSCULO'),
+        'content_sid_menu_info' => env('TWILIO_CONTENT_SID_MENU_INFO'),
     ],
 
 ];

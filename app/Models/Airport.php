@@ -20,6 +20,19 @@ use Illuminate\Support\Carbon;
  * @property float|null $longitude
  * @property float|null $magnetic_variation
  * @property Carbon|null $magnetic_variation_at
+ * @property string|null $iata_code
+ * @property string|null $fir
+ * @property string|null $city_reference
+ * @property float|null $distance_km
+ * @property string|null $direction_reference
+ * @property int|null $elevation_m
+ * @property string|null $state
+ * @property string|null $traffic
+ * @property bool $is_aip_delegated
+ * @property string|null $fuel
+ * @property array<int, string>|null $telephone
+ * @property string|null $service_schedule
+ * @property Carbon|null $details_updated_at
  */
 class Airport extends Model
 {
@@ -37,6 +50,19 @@ class Airport extends Model
         'longitude',
         'magnetic_variation',
         'magnetic_variation_at',
+        'iata_code',
+        'fir',
+        'city_reference',
+        'distance_km',
+        'direction_reference',
+        'elevation_m',
+        'state',
+        'traffic',
+        'is_aip_delegated',
+        'fuel',
+        'telephone',
+        'service_schedule',
+        'details_updated_at',
     ];
 
     protected function casts(): array
@@ -50,6 +76,11 @@ class Airport extends Model
             'longitude' => 'float',
             'magnetic_variation' => 'float',
             'magnetic_variation_at' => 'datetime',
+            'distance_km' => 'float',
+            'elevation_m' => 'integer',
+            'is_aip_delegated' => 'boolean',
+            'telephone' => 'array',
+            'details_updated_at' => 'datetime',
         ];
     }
 

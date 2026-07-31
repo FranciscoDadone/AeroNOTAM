@@ -19,10 +19,19 @@ function bot(): WhatsappBotService
     return app(WhatsappBotService::class);
 }
 
+/**
+ * Asserted on what the bot *resolved* rather than on the reply text, because
+ * these messages no longer all route to the same topic — a bare name now
+ * answers with the ficha and "notams saez" with the NOTAMs, and which aerodrome
+ * was understood is the one thing both have to agree on.
+ */
 it('matches an airport from free text', function (string $message, string $expectedCode) {
     fakeAnac();
 
-    expect(bot()->reply($message)->messages[0])->toContain("({$expectedCode})");
+    $bot = bot();
+    $bot->reply($message);
+
+    expect($bot->lastContext()->anacCode)->toBe($expectedCode);
 })->with([
     'bare anac code' => ['eze', 'EZE'],
     'anac code in a sentence' => ['hay notams en EZE?', 'EZE'],
@@ -71,7 +80,7 @@ it('does not match FIR-wide advisory pseudo-codes', function () {
 it('answers an ambiguous city name with its main aerodrome', function () {
     fakeAnac();
 
-    expect(bot()->reply('cordoba')->messages[0])->toContain('(CBA)');
+    expect(bot()->reply('cordoba')->messages[0])->toContain('CBA / SACO');
 });
 
 /**
@@ -97,7 +106,7 @@ it('asks which aerodrome when two of the same kind share a name', function () {
 it('resolves the ambiguity when answered with a code', function () {
     fakeAnac();
 
-    expect(bot()->reply('CBA')->messages[0])->toContain('(CBA)');
+    expect(bot()->reply('CBA')->messages[0])->toContain('CBA / SACO');
 });
 
 /**
@@ -133,7 +142,7 @@ it('does not warn about aerodromes that are open', function () {
 it('numbers each notam as its own message', function () {
     fakeAnac();
 
-    $reply = bot()->reply('aeroparque')->messages;
+    $reply = bot()->reply('notams aeroparque')->messages;
 
     // The AER fixture carries three NOTAMs.
     expect($reply)->toHaveCount(3)
@@ -148,7 +157,7 @@ it('falls back to the offline decoder when there is no AI', function () {
     fakeAnac();
 
     // "RWY 13/31 CLSD WIP MAINT" decoded without any model involved.
-    expect(bot()->reply('aeroparque')->messages[0])->toContain('Pista 13/31 cerrada');
+    expect(bot()->reply('notams aeroparque')->messages[0])->toContain('Pista 13/31 cerrada');
 });
 
 /**
@@ -161,7 +170,7 @@ it('splits a long notam across messages without losing text', function () {
 
     fakeAnac(Http::response(pibWith($long)));
 
-    $reply = bot()->reply('aeroparque')->messages;
+    $reply = bot()->reply('notams aeroparque')->messages;
 
     expect(count($reply))->toBeGreaterThan(1);
 
@@ -177,7 +186,7 @@ it('splits a long notam across messages without losing text', function () {
 it('reports a service problem when ANAC is unreachable', function () {
     fakeAnac(Http::response('down', 503));
 
-    expect(bot()->reply('eze')->messages[0])->toContain('no pude obtener sus NOTAM');
+    expect(bot()->reply('notam eze')->messages[0])->toContain('no pude obtener sus NOTAM');
 });
 
 /*
@@ -585,7 +594,7 @@ it('never offers a follow-up menu for a pronarea answer', function () {
 it('falls back to the text path for a pronarea menu payload, since none is ever sent', function () {
     fakeAnac();
 
-    expect(bot()->reply('aeroparque', PHONE, 'ask:pronarea:SAEZ')->messages[0])->toContain('(AER)');
+    expect(bot()->reply('notams aeroparque', PHONE, 'ask:pronarea:SAEZ')->messages[0])->toContain('(AER)');
 });
 
 /*
@@ -681,7 +690,7 @@ it('never offers a follow-up menu for an aeromet answer', function () {
 it('falls back to the text path for an aeromet menu payload, since none is ever sent', function () {
     fakeAnac();
 
-    expect(bot()->reply('aeroparque', PHONE, 'ask:aeromet:SAEZ')->messages[0])->toContain('(AER)');
+    expect(bot()->reply('notams aeroparque', PHONE, 'ask:aeromet:SAEZ')->messages[0])->toContain('(AER)');
 });
 
 /*
@@ -1023,7 +1032,7 @@ it('keeps one phone watches out of another', function () {
 it('falls back to the text path when the button payload makes no sense', function () {
     fakeAnac();
 
-    expect(bot()->reply('aeroparque', PHONE, 'nonsense')->messages[0])->toContain('(AER)');
+    expect(bot()->reply('notams aeroparque', PHONE, 'nonsense')->messages[0])->toContain('(AER)');
 });
 
 it('explains that alerts need whatsapp when there is no sender', function () {
@@ -1426,7 +1435,7 @@ it('answers a tapped Consultar AEROMET button without any station matching', fun
 it('falls back to the text path when a menu payload names an unknown topic', function () {
     fakeAnac();
 
-    expect(bot()->reply('aeroparque', PHONE, 'ask:humedad:SAEZ')->messages[0])->toContain('(AER)');
+    expect(bot()->reply('notams aeroparque', PHONE, 'ask:humedad:SAEZ')->messages[0])->toContain('(AER)');
 });
 
 it('does not shrink the answer to fit the menu', function () {
@@ -1750,6 +1759,299 @@ it('splits a notam that carries a button to the smaller template budget', functi
     config(['services.twilio.content_sid_pista' => 'HXpista']);
 
     $reply = bot()->reply('notams aeroparque', PHONE);
+
+    foreach ($reply->messages as $message) {
+        expect(mb_strlen($message))->toBeLessThanOrEqual(1024);
+    }
+});
+
+/*
+|--------------------------------------------------------------------------
+| La ficha del aeródromo
+|--------------------------------------------------------------------------
+|
+| What the aerodrome *is*, which is what a message that names a place and asks
+| nothing else is really asking — and the topic every unrecognised question
+| now falls back to.
+|
+| One rule runs through all of it: a field MADHEL does not publish is reported
+| as unpublished, never as absent. MADHEL publishes fuel for roughly one
+| aerodrome in seven, and a pilot planning a leg on "no tiene combustible"
+| would be planning it on something nobody ever said.
+|
+*/
+
+function seedSantaRosaFicha(): void
+{
+    Airport::where('anac_code', 'OSA')->update([
+        'iata_code' => 'RSA',
+        'fir' => 'SAEF',
+        'city_reference' => 'Santa Rosa',
+        'distance_km' => 4.5,
+        'direction_reference' => 'NNE',
+        'elevation_m' => 192,
+        'state' => 'LA PAMPA',
+        'traffic' => 'NTL',
+        'is_aip_delegated' => true,
+        'latitude' => -36.5883333,
+        'longitude' => -64.2758333,
+        'details_updated_at' => now(),
+    ]);
+
+    // Santa Rosa is delegated to the AIP, so its runway can only have come
+    // from OurAirports — 7546 × 98 ft, lit.
+    foreach (['01' => 11, '19' => 191] as $designator => $heading) {
+        Runway::create([
+            'anac_code' => 'OSA',
+            'designator' => $designator,
+            'heading_true' => $heading,
+            'is_closed' => false,
+            'source' => 'ourairports',
+            'length_m' => 2300,
+            'width_m' => 30,
+            'surface' => 'asfalto',
+            'is_lighted' => true,
+        ]);
+    }
+}
+
+it('answers a message that only names a place with the ficha', function (string $message) {
+    seedSantaRosaFicha();
+
+    $reply = bot()->reply($message)->messages;
+
+    expect($reply)->toHaveCount(1)
+        ->and($reply[0])
+        ->toContain('SANTA ROSA')
+        ->toContain('OSA / SAZR / RSA')
+        ->toContain('4,5 km al nor-noreste de Santa Rosa (La Pampa)')
+        ->toContain('Elevación 192 m (630 ft)')
+        ->toContain('FIR Ezeiza (SAEF)')
+        ->toContain('01/19 — 2300 × 30 m — asfalto — balizada');
+})->with([
+    'the ANAC code alone, in lower case' => ['osa'],
+    'the ANAC code alone, in capitals' => ['OSA'],
+    'the OACI code alone' => ['sazr'],
+    'the name alone' => ['santa rosa'],
+    'asking for it in words' => ['info osa'],
+    'asking where it is' => ['donde queda santa rosa'],
+]);
+
+/**
+ * The coordinates are printed the way a chart prints them, so they can be
+ * compared against one without converting anything.
+ */
+it('writes the coordinates in degrees, minutes and seconds', function () {
+    seedSantaRosaFicha();
+
+    expect(bot()->reply('osa')->messages[0])->toContain('36°35\'18"S 064°16\'33"O');
+});
+
+/**
+ * MADHEL leaves `data` empty for the seventeen aerodromes it delegates to the
+ * AIP, which are the ones people actually ask about. Silence there is the
+ * registry's, not the aerodrome's, and the ficha has to say which.
+ */
+it('never reports an unpublished field as an absent service', function () {
+    seedSantaRosaFicha();
+
+    expect(bot()->reply('osa')->messages[0])
+        ->toContain('⛽ Combustible: sin dato publicado en MADHEL')
+        ->toContain('☎️ Teléfono: sin dato publicado en MADHEL')
+        ->not->toContain('no tiene')
+        // And it points at where the answer does live.
+        ->toContain('ais.anac.gob.ar/aip');
+});
+
+it('shows the fuel and telephone of an aerodrome MADHEL does publish them for', function () {
+    Airport::where('anac_code', 'CIF')->update([
+        'city_reference' => 'Arrecifes',
+        'distance_km' => 4.5,
+        'direction_reference' => 'ESE',
+        'elevation_m' => 43,
+        'state' => 'BUENOS AIRES',
+        'fuel' => 'AVGAS 100LL',
+        'telephone' => ['(02478) 15-504877'],
+        'is_aip_delegated' => false,
+        'details_updated_at' => now(),
+    ]);
+
+    expect(bot()->reply('info cif')->messages[0])
+        ->toContain('⛽ Combustible: AVGAS 100LL')
+        ->toContain('☎️ Teléfono: (02478) 15-504877')
+        ->toContain('4,5 km al este-sudeste de Arrecifes (Buenos Aires)')
+        // Not delegated, so there is no AIP to send anybody to.
+        ->not->toContain('ais.anac.gob.ar/aip');
+});
+
+/**
+ * "Sin dato publicado en MADHEL" is a claim about the registry. Making it
+ * about an aerodrome we never asked MADHEL about would be reporting our own
+ * gap as somebody else's.
+ */
+it('says the ficha was never imported rather than blaming MADHEL for it', function () {
+    expect(bot()->reply('ezeiza')->messages[0])
+        ->toContain('Todavía no importé la ficha')
+        ->not->toContain('sin dato publicado en MADHEL');
+});
+
+it('says so plainly when neither source has any runway', function () {
+    seedSantaRosaFicha();
+    Runway::where('anac_code', 'OSA')->delete();
+
+    expect(bot()->reply('osa')->messages[0])
+        ->toContain('Sin pistas publicadas por MADHEL ni OurAirports');
+});
+
+/**
+ * A closed aerodrome answering "here is where it is and how long its runway
+ * is" without saying it is closed would be describing a place nobody can land
+ * at as though they could.
+ */
+it('warns that the aerodrome is closed', function () {
+    // Curuzú Cuatiá, which MADHEL publishes as AD CERRADO (CLSD).
+    expect(bot()->reply('CCA')->messages[0])->toContain('Aeródromo cerrado');
+});
+
+it('marks a closed runway rather than hiding it', function () {
+    seedSantaRosaFicha();
+    Runway::where('anac_code', 'OSA')->update(['is_closed' => true]);
+
+    expect(bot()->reply('osa')->messages[0])->toContain('01/19')->toContain('⛔ cerrada');
+});
+
+/**
+ * Both ends of a strip share its dimensions, so the ficha lists it once. An
+ * end whose opposite is not on file is still listed, on its own.
+ */
+it('lists an unpaired runway end on its own', function () {
+    seedSantaRosaFicha();
+    Runway::where('anac_code', 'OSA')->where('designator', '19')->delete();
+
+    expect(bot()->reply('osa')->messages[0])->toContain('• 01 — 2300 × 30 m');
+});
+
+it('calls a heliport a heliport', function () {
+    Airport::create([
+        'anac_code' => 'HZZ',
+        'name' => 'HELIPUERTO ZURUMBAMBA',
+        'kind' => 'HLP',
+        'access' => 'privado',
+        'details_updated_at' => now(),
+    ]);
+
+    expect(bot()->reply('HZZ')->messages[0])->toContain('Helipuerto privado no controlado');
+});
+
+/**
+ * Thirty-one aerodromes sit against the town they serve: MADHEL writes
+ * "Lindando" in the bearing field and zero in the distance. That is not a
+ * compass point, and forcing it through the rose would invent a direction.
+ */
+it('phrases an aerodrome that abuts its town as abutting it', function () {
+    Airport::where('anac_code', 'BOL')->update([
+        'city_reference' => 'El Bolsón',
+        'distance_km' => 0,
+        'direction_reference' => 'Lindando',
+        'state' => 'RÍO NEGRO',
+        'details_updated_at' => now(),
+    ]);
+
+    expect(bot()->reply('BOL')->messages[0])
+        ->toContain('Lindando con El Bolsón (Río Negro)')
+        ->not->toContain('0 km');
+});
+
+/**
+ * The ficha keywords are matched last precisely so that they can be this
+ * broad: "aeropuerto" appears in half the messages the bot gets.
+ */
+it('does not swallow the questions its own keywords appear inside', function (string $message, string $expected) {
+    fakeAnac();
+    fakeMetar();
+    fakeTaf();
+
+    $bot = bot();
+    $bot->reply($message);
+
+    expect($bot->lastContext()->topic)->toBe($expected);
+})->with([
+    'notams at an aeropuerto' => ['hay notams en el aeropuerto de Cordoba', 'notam'],
+    'the weather at an aerodromo' => ['como esta el clima en el aerodromo de Bariloche', 'metar'],
+    'the forecast for an aeropuerto' => ['taf del aeropuerto de Ezeiza', 'taf'],
+    'the ficha itself' => ['datos de Ezeiza', 'info'],
+    'a bare name' => ['ezeiza', 'info'],
+]);
+
+it('offers the other three topics under the ficha', function () {
+    withButtonTemplates();
+    seedSantaRosaFicha();
+
+    $menu = bot()->reply('osa', PHONE)->menu;
+
+    expect($menu?->button->contentSid)->toBe('HXmenuinfo')
+        ->and($menu?->button->payloadValue)->toBe('SAZR');
+});
+
+it('answers a tapped ficha button without any text matching', function () {
+    seedSantaRosaFicha();
+
+    $reply = bot()->reply('Ficha', PHONE, 'ask:info:SAZR')->messages;
+
+    expect($reply[0])->toContain('SANTA ROSA')->toContain('Elevación 192 m');
+});
+
+/**
+ * ANAC and IATA agree at a good few aerodromes — Ezeiza is EZE in both — and
+ * "EZE / SAEZ / EZE" reads as a mistake rather than as two registries
+ * happening to concur.
+ */
+it('does not repeat a code two registries agree on', function () {
+    Airport::where('anac_code', 'EZE')->update(['iata_code' => 'EZE', 'details_updated_at' => now()]);
+
+    expect(bot()->reply('info eze')->messages[0])
+        ->toContain('EZE / SAEZ')
+        ->not->toContain('EZE / SAEZ / EZE');
+});
+
+/**
+ * The ficha has just listed the cabeceras, so "which of these does the wind
+ * favour right now" is the next thing the reader wants — the same reason the
+ * offer rides under a NOTAM.
+ */
+it('offers the runway wind under the ficha', function () {
+    seedSantaRosaFicha();
+    config(['services.twilio.content_sid_pista' => 'HXpista']);
+
+    $reply = bot()->reply('osa', PHONE);
+
+    expect($reply->button?->contentSid)->toBe('HXpista')
+        ->and($reply->button?->payloadValue)->toBe('SAZR');
+});
+
+/**
+ * A button leading to "no tengo los rumbos de pista" is worse than no button,
+ * and a message carrying one is split to the shorter template budget — which
+ * would cost extra messages for nothing.
+ */
+it('does not offer the runway wind on a ficha with no runways', function () {
+    seedSantaRosaFicha();
+    Runway::where('anac_code', 'OSA')->delete();
+    config(['services.twilio.content_sid_pista' => 'HXpista']);
+
+    expect(bot()->reply('osa', PHONE)->button)->toBeNull();
+});
+
+it('splits a ficha that carries the button to the smaller template budget', function () {
+    seedSantaRosaFicha();
+    Airport::where('anac_code', 'OSA')->update([
+        'service_schedule' => str_repeat('LUN a VIE 12:00 a 21:00 HR UTC, SAB y DOM O/R. ', 40),
+    ]);
+    config(['services.twilio.content_sid_pista' => 'HXpista']);
+
+    $reply = bot()->reply('osa', PHONE);
+
+    expect(count($reply->messages))->toBeGreaterThan(1);
 
     foreach ($reply->messages as $message) {
         expect(mb_strlen($message))->toBeLessThanOrEqual(1024);

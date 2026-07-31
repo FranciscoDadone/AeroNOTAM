@@ -63,6 +63,7 @@ it('never offers the topic the message just answered', function () {
         'metar' => 'TWILIO_CONTENT_SID_MENU_METAR',
         'taf' => 'TWILIO_CONTENT_SID_MENU_TAF',
         'crepusculo' => 'TWILIO_CONTENT_SID_MENU_CREPUSCULO',
+        'info' => 'TWILIO_CONTENT_SID_MENU_INFO',
     ];
 
     $templates = (new CreateContentTemplates)->templates();

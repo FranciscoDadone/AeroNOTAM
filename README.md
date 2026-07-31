@@ -31,6 +31,8 @@ SHN  (scraping HTML) → ShnSunService (caché)                            → B
 MADHEL      (API JSON) ┐
 OurAirports (CSV)      ┼→ notams:import-runways → tabla runways → RunwayWind
 NOAA WMM    (API JSON) ┘   (declinación magnética)                 (componente de viento)
+                       └→ notams:import-airport-details → tabla airports → ficha
+                          (ubicación, elevación, FIR, combustible, teléfono)
 ```
 
 - **`AnacNotamService`** habla con ANAC y parsea su HTML. Devuelve NOTAM crudos
@@ -149,7 +151,7 @@ los tres procesos que la aplicación necesita para estar entera:
 | --- | --- |
 | `app` | La API REST y el webhook de WhatsApp, en `:8090` (`APP_PORT` lo cambia). |
 | `queue` | `queue:work`. **Sin él el bot no contesta**: toda respuesta sale de un job. |
-| `scheduler` | `schedule:work`: `notams:refresh-airports`, `notams:import-madhel`, `notams:import-runways` y la ronda de `metar:watch`. |
+| `scheduler` | `schedule:work`: `notams:refresh-airports`, `notams:import-madhel`, `notams:import-runways`, `notams:import-airport-details` y la ronda de `metar:watch`. |
 
 Un cuarto servicio, `migrate`, corre una vez antes que los demás y termina:
 migra, siembra los aeródromos y pone la base en modo WAL. Tenerlo aparte es lo
@@ -263,6 +265,12 @@ El bot entiende `"EZE"`, `"SAEZ"`, `"ezeiza"` o `"hay notams en Ezeiza?"`.
 Cuando un nombre es ambiguo — Córdoba tiene tres aeródromos — pregunta en vez
 de elegir: mandar los NOTAM del aeródromo equivocado es peor que repreguntar.
 
+Un mensaje que sólo nombra un lugar (`"osa"`, `"sazr"`, `"santa rosa"`)
+devuelve **la ficha del aeródromo**, no sus NOTAM — ver
+[La ficha](#la-ficha-qué-es-el-aeródromo). Los NOTAM se piden con la palabra:
+`"notam sazr"`, `"hay notams en Ezeiza?"`, o con el botón que la ficha lleva
+al pie.
+
 Si el mensaje menciona el tiempo (`"metar EZE"`, `"cómo está el clima en
 Bariloche?"`, `"viento en SAEZ"`) responde con el METAR en vez de los NOTAM. Si
 pregunta por lo que va a pasar (`"taf EZE"`, `"pronóstico de Aeroparque"`,
@@ -278,6 +286,57 @@ ahora hay con qué contestarlas.
 La palabra `"notam"` gana sobre todo lo demás: quien la escribió sabe lo que
 pidió, y _"hay notams para mañana en EZE?"_ no se contesta con un pronóstico.
 
+### La ficha: qué *es* el aeródromo
+
+Todo lo demás que contesta el bot es sobre esta tarde. La ficha es lo otro: a
+qué distancia y rumbo de la ciudad está el aeródromo, qué pistas tiene y de qué
+largo, ancho y superficie, a qué elevación, si hay combustible y a quién llamar.
+
+```
+🛬 SANTA ROSA
+Aeródromo público controlado · OSA / SAZR / RSA
+
+📍 4,5 km al nor-noreste de Santa Rosa (La Pampa)
+   36°35'18"S 064°16'33"O
+⛰️ Elevación 192 m (630 ft)
+🗺️ FIR Ezeiza (SAEF) · Tránsito nacional
+
+Pistas
+• 01/19 — 2300 × 30 m — asfalto — balizada
+
+⛽ Combustible: sin dato publicado en MADHEL
+☎️ Teléfono: sin dato publicado en MADHEL
+
+MADHEL remite a la AIP para este aeródromo: ais.anac.gob.ar/aip
+```
+
+Se pide sola (`"osa"`, `"santa rosa"`, `"sazr"`) o por su nombre (`"info osa"`,
+`"combustible en CIF"`, `"dónde queda Arrecifes"`), y es también lo que
+contesta cualquier mensaje que nombre un aeródromo sin pedir otra cosa.
+
+Al pie lleva el botón **🛬 Viento en pista**, porque acaba de listar las
+cabeceras y "cuál de éstas favorece el viento ahora" es la pregunta que sigue —
+y sólo se manda cuando hay rumbos cargados, que es justamente cuando la ficha
+tuvo una lista con la que provocarla.
+
+**"Sin dato publicado" nunca quiere decir "no tiene".** MADHEL deja el bloque
+`data` vacío para los diecisiete aeródromos que delega al AIP — que son
+justamente los más consultados — y publica combustible para apenas uno de cada
+siete. Decir "no hay combustible" por eso sería inventar un dato sobre un lugar
+al que alguien está por volar. Cuando la ficha ni siquiera se importó todavía,
+la respuesta lo dice con esas palabras, en vez de atribuirle a MADHEL un
+silencio que es nuestro.
+
+Las dimensiones y la superficie vienen de las dos mismas fuentes que los rumbos
+y con el mismo reparto — ver
+[Componente de viento en pista](#componente-de-viento-en-pista). Los datos de
+MADHEL se importan con un comando semanal:
+
+```bash
+php artisan notams:import-airport-details            # todo el registro, ~5 min
+php artisan notams:import-airport-details --only=OSA # un aeródromo
+```
+
 ### Componente de viento en pista
 
 `"viento cruzado en Ezeiza"`, `"componente de viento en EZE"` o
@@ -290,7 +349,7 @@ un límite de viento cruzado.
 Es el paso que el METAR deja a medio camino: informa `35015G25KT` y deja al
 lector hacer la cuenta que en realidad decide dónde aterrizar.
 
-También se llega con un toque: tanto las respuestas de METAR como las de NOTAM
+También se llega con un toque: las respuestas de METAR, las de NOTAM y la ficha
 llevan un botón **🛬 Viento en pista** al pie.
 
 ```
@@ -341,6 +400,12 @@ Son casi exactamente complementarias: MADHEL tiene los chicos que OurAirports no
 conoce y OurAirports tiene los grandes que MADHEL deja en blanco. Juntas cubren
 prácticamente todo el registro público.
 
+El mismo reparto vale para el largo, el ancho, la superficie y el balizamiento
+que muestra la ficha: MADHEL los escribe en la prosa que sigue al designador
+(`05/23 1871x30 M - ASPH`) y OurAirports los publica en cuatro columnas, para
+225 de las 233 pistas argentinas. MADHEL decide qué pistas existen; donde deja
+un dato en blanco, lo completa OurAirports, y nunca al revés.
+
 Un rumbo publicado por OurAirports se usa sólo si concuerda con su propio
 designador dentro de 20°. Eso no es por precisión — un designador está
 redondeado a diez grados, así que discrepar unos pocos es normal — sino contra
@@ -388,8 +453,10 @@ php artisan queue:work --tries=3
 
 En producción esto va bajo systemd o supervisor, junto con
 `php artisan schedule:work` para el refresco horario de aeródromos
-(`notams:refresh-airports`), el import semanal del registro
-(`notams:import-madhel`) y la ronda de alertas (`metar:watch`).
+(`notams:refresh-airports`), los imports semanales del registro
+(`notams:import-madhel`), de las pistas (`notams:import-runways`) y de las
+fichas (`notams:import-airport-details`), y la ronda de alertas
+(`metar:watch`).
 
 ### El registro de aeródromos
 
@@ -411,6 +478,12 @@ php artisan notams:import-madhel --seed-file  # además regenera el snapshot com
 edita a mano, y existe para que una instalación nueva y los tests tengan el
 registro completo sin depender de la red. `notams:refresh-airports` sigue
 corriendo cada hora, pero ahora sólo anota qué aeródromos tienen NOTAM activo.
+
+El snapshot lleva sólo lo que trae el endpoint de listado: nombre, códigos,
+clasificación y coordenadas. La ubicación relativa, la elevación, el FIR, el
+combustible y el teléfono viven en el detalle por aeródromo y los trae
+`notams:import-airport-details`, que —como `notams:import-runways`— no tiene
+snapshot y hay que correr una vez a mano en una instalación nueva.
 
 ### Alertas: "avisame si cambia"
 
@@ -467,6 +540,7 @@ php artisan whatsapp:content-templates
 # TWILIO_CONTENT_SID_METAR=HX...
 # TWILIO_CONTENT_SID_ALERT=HX...
 # TWILIO_CONTENT_SID_PISTA=HX...
+# TWILIO_CONTENT_SID_MENU_INFO=HX...
 ```
 
 No se someten a aprobación de WhatsApp y no hace falta: la aprobación compra el
@@ -480,17 +554,24 @@ oferta **🛬 Viento en pista** viaja en el mensaje mismo, donde había lugar:
 - `TWILIO_CONTENT_SID_METAR` lleva **dos** botones, 🔔 Avisarme y 🛬 Viento en
   pista, y va bajo cada METAR.
 - `TWILIO_CONTENT_SID_PISTA` lleva sólo el 🛬. Es el que va bajo el último
-  mensaje de una respuesta de NOTAM, y también bajo un METAR de un aeródromo al
-  que el lector ya está suscripto — ahí el botón de alta prometería algo que ya
-  pasa.
+  mensaje de una respuesta de NOTAM y al pie de la ficha, y también bajo un
+  METAR de un aeródromo al que el lector ya está suscripto — ahí el botón de
+  alta prometería algo que ya pasa.
 
-Bajo los NOTAM el botón se ofrece **sólo si hay rumbos de pista cargados**, al
-revés que bajo el METAR. Ahí no se puede: los dos botones comparten plantilla y
+Bajo los NOTAM y la ficha el botón se ofrece **sólo si hay rumbos de pista
+cargados**, al revés que bajo el METAR. Ahí no se puede: los dos botones comparten plantilla y
 las acciones de una plantilla quedan fijas al registrarla. Acá el botón está
 solo, así que se manda únicamente cuando va a contestar algo — un botón que
 lleva a _"no tengo los rumbos de pista"_ es peor que ningún botón, y además un
 mensaje con botón se parte al presupuesto más corto de las plantillas, que
 costaría mensajes de más para nada.
+
+Los menús de seguimiento son cinco, uno por tema: cada uno ofrece otros tres
+para el mismo aeródromo, y hay uno por tema porque los títulos de los botones
+quedan fijos al registrar la plantilla. El de la ficha
+(`TWILIO_CONTENT_SID_MENU_INFO`) es el que más se manda, porque la ficha es la
+respuesta por defecto: ofrece NOTAM, METAR y TAF, que es lo que alguien quiere
+saber justo después de enterarse de que el lugar existe.
 
 **Sin esos SID el bot funciona igual.** Los mensajes salen en texto plano con el
 comando escrito equivalente al pie (_"Respondeme «avisame SAEZ»"_). El botón

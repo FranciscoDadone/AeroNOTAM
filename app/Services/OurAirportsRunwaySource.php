@@ -24,6 +24,11 @@ use RuntimeException;
  * runway 05 is published as heading 178°, which is 128° from where a runway
  * numbered 05 can point), so the caller checks each one against the designator
  * before believing it.
+ *
+ * The same complementarity holds for the dimensions the ficha prints. MADHEL
+ * writes "05/23 1871x30 M - ASPH" for the small aerodromes and nothing at all
+ * for the delegated ones; this file has length, width, surface and lighting
+ * for 225 of the 233 Argentine runways, Ezeiza and Santa Rosa included.
  */
 class OurAirportsRunwaySource
 {
@@ -33,6 +38,50 @@ class OurAirportsRunwaySource
      * heading from and are not what this feature is about.
      */
     protected const DESIGNATOR = '/^(\d{1,2})([LCR])?$/';
+
+    /**
+     * Its surface codes, mapped to the same Spanish words MadhelRunways
+     * normalises to, so the ficha reads the same whichever source filled it in.
+     *
+     * The Argentine rows use eleven spellings for what are really five
+     * surfaces: ASP/Asphalt/ASPHALT/PEM are all pavement, GRE ("graded or
+     * rolled earth") is what MADHEL would call Tierra, and CON/Concrete is
+     * hormigón. UNK and the blanks are absent on purpose — they are the file
+     * saying it does not know, and null carries that honestly where "unknown"
+     * printed in the ficha would not.
+     *
+     * @var array<string, string>
+     */
+    protected const SURFACES = [
+        'ASP' => 'asfalto',
+        'ASPH' => 'asfalto',
+        'ASPHALT' => 'asfalto',
+        'PEM' => 'asfalto',
+        'BIT' => 'asfalto',
+        'CON' => 'hormigón',
+        'CONC' => 'hormigón',
+        'CONCRETE' => 'hormigón',
+        'GRE' => 'tierra',
+        'DIRT' => 'tierra',
+        'EARTH' => 'tierra',
+        'CLAY' => 'tierra',
+        'GRS' => 'pasto',
+        'GRASS' => 'pasto',
+        'TURF' => 'pasto',
+        'GVL' => 'ripio',
+        'GRVL' => 'ripio',
+        'GRAVEL' => 'ripio',
+        'SAND' => 'arena',
+        'SNO' => 'nieve',
+        'WATER' => 'agua',
+    ];
+
+    /**
+     * Feet to metres. The file publishes both dimensions in feet; the ficha
+     * quotes metres, which is what MADHEL publishes and what Argentine charts
+     * print, so the conversion happens once here rather than on every read.
+     */
+    protected const FEET_TO_METRES = 0.3048;
 
     public function __construct(protected string $url) {}
 
@@ -44,7 +93,7 @@ class OurAirportsRunwaySource
      * — costs more memory than PHP is given by default, for the sake of the
      * few hundred Argentine rows that are actually wanted.
      *
-     * @return array<string, array<int, array{designator: string, heading_true: int|null, is_closed: bool}>>
+     * @return array<string, array<int, array{designator: string, heading_true: int|null, is_closed: bool, length_m: int|null, width_m: int|null, surface: string|null, is_lighted: bool|null}>>
      */
     public function endsByIcao(): array
     {
@@ -69,11 +118,16 @@ class OurAirportsRunwaySource
 
             $closed = ($line[$column['closed']] ?? '') === '1';
 
+            // Length, width, surface and lighting are published once for the
+            // whole strip, so both ends carry the same figures — which is also
+            // how they are stored, one row per end.
+            $strip = $this->strip($line, $column);
+
             foreach ([['le_ident', 'le_heading_degT'], ['he_ident', 'he_heading_degT']] as [$identKey, $headingKey]) {
                 $end = $this->end($line[$column[$identKey]] ?? '', $line[$column[$headingKey]] ?? '', $closed);
 
                 if ($end !== null) {
-                    $ends[$icao][] = $end;
+                    $ends[$icao][] = $end + $strip;
                 }
             }
         }
@@ -81,6 +135,43 @@ class OurAirportsRunwaySource
         fclose($handle);
 
         return $ends;
+    }
+
+    /**
+     * The strip both ends of one CSV row share.
+     *
+     * A zero length or width is the file's way of saying it does not have the
+     * figure, not a runway with no length, so it comes back null rather than
+     * as a 0 m runway.
+     *
+     * @param  array<int, string|null>  $line
+     * @param  array<string, int>  $column
+     * @return array{length_m: int|null, width_m: int|null, surface: string|null, is_lighted: bool|null}
+     */
+    protected function strip(array $line, array $column): array
+    {
+        $lighted = $line[$column['lighted']] ?? '';
+
+        return [
+            'length_m' => $this->metres($line[$column['length_ft']] ?? ''),
+            'width_m' => $this->metres($line[$column['width_ft']] ?? ''),
+            'surface' => self::SURFACES[strtoupper(trim($line[$column['surface']] ?? ''))] ?? null,
+            // Only "1" and "0" are statements; a blank is the file not saying,
+            // and claiming a runway is unlit would be a claim about a night
+            // landing that silence does not support.
+            'is_lighted' => match ($lighted) {
+                '1' => true,
+                '0' => false,
+                default => null,
+            },
+        ];
+    }
+
+    protected function metres(string $feet): ?int
+    {
+        return is_numeric($feet) && (float) $feet > 0
+            ? (int) round((float) $feet * self::FEET_TO_METRES)
+            : null;
     }
 
     /**

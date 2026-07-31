@@ -28,11 +28,30 @@ class AirportResolver
      * lower case the name path still gets there: "salta" reaches SAL,
      * "bariloche" reaches BAR.
      *
+     * The one exception is a message that is nothing but the code — see
+     * bareCode(), which runs before any of this.
+     *
      * @var array<int, string>
      */
     protected const AMBIGUOUS_CODES = [
         'BAR', 'CAL', 'CON', 'DAR', 'DIA', 'DIO', 'GAS', 'HAS', 'IBA', 'LIO',
         'OLA', 'OSA', 'PAN', 'PAR', 'SAL', 'SAN', 'TIO', 'TOS', 'VAN', 'VER', 'VEZ',
+    ];
+
+    /**
+     * The words a message can carry alongside a code without stopping it from
+     * being "just a code" — see bareCode(), the only thing that reads them.
+     *
+     * Only the words that name a topic, plus the two that glue them to the
+     * code. Articles are deliberately absent: with "el" on the list, "el gas"
+     * would resolve to GAS.
+     *
+     * @var array<int, string>
+     */
+    protected const QUESTION_WORDS = [
+        'info', 'informacion', 'datos', 'ficha', 'aerodromo', 'aeropuerto',
+        'notam', 'notams', 'metar', 'speci', 'taf', 'pronarea', 'aeromet',
+        'crepusculo', 'de', 'del', 'en',
     ];
 
     /**
@@ -64,6 +83,20 @@ class AirportResolver
     public function exists(string $anacCode): bool
     {
         return Airport::query()->where('anac_code', $anacCode)->exists();
+    }
+
+    /**
+     * The whole row, for the one answer that is about the aerodrome itself
+     * rather than about something happening at it.
+     *
+     * Every other caller wants one field and asks for it by name — nameFor(),
+     * icaoFor(), isClosed() — because that is all a NOTAM or a METAR reply
+     * needs to know. The ficha needs a dozen of them at once, and twelve more
+     * single-column lookups would be twelve more queries to say the same thing.
+     */
+    public function find(string $anacCode): ?Airport
+    {
+        return Airport::query()->where('anac_code', strtoupper(trim($anacCode)))->first();
     }
 
     public function nameFor(string $anacCode): ?string
@@ -106,6 +139,12 @@ class AirportResolver
      */
     public function matchFromText(string $message): ?string
     {
+        $bare = $this->bareCode($message);
+
+        if ($bare !== null) {
+            return $bare;
+        }
+
         $aerodromes = Airport::query()->realAerodromes()->get();
 
         // Direct ANAC code mention, e.g. "notams EZE" or "eze".
@@ -140,6 +179,43 @@ class AirportResolver
         return $matches->count() === 1 || $best['rank'] > $matches[1]['rank']
             ? $best['airport']->anac_code
             : null;
+    }
+
+    /**
+     * A message whose only content is a code — "osa", "sazr", "info osa",
+     * "notams del aeropuerto de osa" — resolved without the capitals rule.
+     *
+     * AMBIGUOUS_CODES exists because "quiero ver los notams de eze" must not
+     * resolve to VER, and it earns that by insisting those codes be typed in
+     * capitals. But that rule costs something the day a bare code becomes an
+     * ordinary thing to send: since a lone place name now answers with the
+     * ficha, "osa" is exactly how somebody asks about Santa Rosa, and nobody
+     * writes a three-letter message about a bear.
+     *
+     * So the rule is relaxed for that case — and, because "info osa" is the
+     * same question with the topic said out loud, for a message that is a code
+     * plus the words below and nothing else. What keeps it narrow is that the
+     * list is only the words that name a topic: "la osa mayor se ve de noche"
+     * still has five tokens this cannot account for, so it is left to the
+     * capitals rule, which rejects it.
+     */
+    protected function bareCode(string $message): ?string
+    {
+        $tokens = preg_split('/[^a-z]+/', $this->normalize($message), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $rest = array_values(array_diff($tokens, self::QUESTION_WORDS));
+
+        if (count($rest) !== 1 || preg_match('/^[a-z]{3,4}$/', $rest[0]) !== 1) {
+            return null;
+        }
+
+        $code = strtoupper($rest[0]);
+
+        $anacCode = Airport::query()
+            ->realAerodromes()
+            ->where(fn ($query) => $query->where('anac_code', $code)->orWhere('icao_code', $code))
+            ->value('anac_code');
+
+        return $anacCode === null ? null : (string) $anacCode;
     }
 
     /**

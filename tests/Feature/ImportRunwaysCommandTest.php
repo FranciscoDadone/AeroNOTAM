@@ -180,6 +180,73 @@ it('drops runway ends that are no longer published', function () {
         ->toBe(['18', '36']);
 });
 
+/**
+ * The ficha quotes the strip, not just its heading, and both sources carry it —
+ * MADHEL in the prose it writes after the designator, OurAirports in four
+ * columns the import was reading past. Both ends of a runway get the figures,
+ * because the table is one row per end and 18 is as long as 36 is.
+ */
+it('reads the dimensions and the surface out of MADHEL', function () {
+    fakeRunwaySources(['NIN' => ['18/36 1500x30 M - Tierra.']]);
+
+    $this->artisan('notams:import-runways --only=NIN')->assertSuccessful();
+
+    foreach (Runway::where('anac_code', 'NIN')->get() as $runway) {
+        expect($runway->length_m)->toBe(1500)
+            ->and($runway->width_m)->toBe(30)
+            ->and($runway->surface)->toBe('tierra');
+    }
+});
+
+/**
+ * OurAirports publishes feet; MADHEL publishes metres and so do Argentine
+ * charts, so the conversion happens on write and a reader never has to ask
+ * which source a number came from.
+ */
+it('converts the OurAirports dimensions to metres', function () {
+    fakeRunwaySources(
+        ['EZE' => []],
+        ourAirportsCsv([
+            ['icao' => 'SAEZ', 'le' => '11', 'le_heading' => '102.3', 'he' => '29', 'he_heading' => '282.3'],
+        ]),
+    );
+
+    $this->artisan('notams:import-runways --only=EZE')->assertSuccessful();
+
+    // 9842 ft × 0,3048 = 3000 m; 200 ft = 61 m; "CON" is hormigón in both
+    // sources' shared vocabulary, and lighted=1 is a statement.
+    $runway = Runway::where('anac_code', 'EZE')->firstOrFail();
+
+    expect($runway->length_m)->toBe(3000)
+        ->and($runway->width_m)->toBe(61)
+        ->and($runway->surface)->toBe('hormigón')
+        ->and($runway->is_lighted)->toBeTrue();
+});
+
+/**
+ * MADHEL decides which runways exist — it is ANAC's own registry — but where it
+ * publishes a designator and nothing else, a figure from the open registry
+ * beats no figure at all. What it must never do is replace one MADHEL did
+ * publish.
+ */
+it('fills in what MADHEL left blank from OurAirports without overwriting it', function () {
+    fakeRunwaySources(
+        ['NIN' => ['18/36 1500x30 M - Tierra.']],
+        ourAirportsCsv([
+            ['icao' => 'SAAJ', 'le' => '18', 'le_heading' => '171', 'he' => '36', 'he_heading' => '351'],
+        ]),
+    );
+
+    $this->artisan('notams:import-runways --only=NIN')->assertSuccessful();
+
+    $runway = Runway::where('anac_code', 'NIN')->where('designator', '18')->firstOrFail();
+
+    expect($runway->length_m)->toBe(1500)          // MADHEL's, not the CSV's 3000
+        ->and($runway->surface)->toBe('tierra')    // not the CSV's hormigón
+        ->and($runway->is_lighted)->toBeTrue()     // the gap MADHEL left
+        ->and($runway->source)->toBe('madhel');
+});
+
 it('caches the magnetic variation on the aerodrome', function () {
     fakeRunwaySources(['NIN' => ['18/36 1500x30 M - Tierra.']]);
 

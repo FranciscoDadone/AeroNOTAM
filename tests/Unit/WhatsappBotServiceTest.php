@@ -1828,6 +1828,41 @@ it('computes the runway components of an aerodrome with no OACI code off the AER
 });
 
 /**
+ * CORONEL SUÁREZ has no METAR-publishing aerodrome behind its AEROMET
+ * station, so the SYNOP is genuinely the best wind there is. SANTA ROSA is
+ * the other case: the station AerometStationResolver resolves for EL
+ * PAMPERO (ELP, no OACI code of its own) is also OSA, a real aerodrome with
+ * its own METAR (SAZR) — so the component should come off that METAR, not
+ * off a SYNOP that a real observation makes unnecessary.
+ */
+function seedElPamperoRunways(): void
+{
+    foreach (['01' => 8, '19' => 188] as $designator => $heading) {
+        Runway::create([
+            'anac_code' => 'ELP',
+            'designator' => $designator,
+            'heading_true' => $heading,
+            'is_closed' => false,
+            'source' => 'madhel',
+        ]);
+    }
+}
+
+it('computes the runway components off a nearby aerodrome\'s METAR rather than its AEROMET SYNOP', function () {
+    fakeMetar(Http::response(smnMetarWith('METAR SAZR 271400Z 19012KT 9999 SCT020 15/14 Q1009 =', 'SANTA ROSA')));
+    Airport::where('anac_code', 'ELP')->update(['city_reference' => 'Santa Rosa']);
+    seedElPamperoRunways();
+
+    $body = implode("\n", bot()->reply('viento en pista', PHONE, 'pista:ELP')->messages);
+
+    expect($body)->toContain('el componente sale del METAR de *SANTA ROSA*')
+        ->toContain('19012KT')
+        ->toContain('Viento del 190°')
+        ->toContain('✅ RWY 19')
+        ->not->toContain('AEROMET');
+});
+
+/**
  * Without runways there is nothing to compute whatever the wind is doing, so
  * the answer is the ficha's own gap — and AEROMET, which at least has the wind
  * itself, is offered instead.

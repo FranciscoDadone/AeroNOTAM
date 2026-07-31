@@ -982,14 +982,17 @@ class WhatsappBotService
     }
 
     /**
-     * The components computed off AEROMET's observation for the locality —
-     * what answers when the METAR network either does not reach this aerodrome
-     * or has nothing published for it right now.
+     * The components computed off the locality's wind — a real METAR when the
+     * AEROMET station AerometStationResolver resolves to turns out to be a
+     * full aerodrome with one of its own (Santa Rosa, for El Pampero), and
+     * AEROMET's own SYNOP observation otherwise. What answers when the METAR
+     * network either does not reach this aerodrome or has nothing published
+     * for it right now.
      *
-     * A failed AEROMET fetch is reported the same way an empty one is, rather
-     * than as its own error: the question was about the wind on a runway, and
-     * "el SMN no responde" is a truthful answer to a question nobody asked.
-     * The exception is still reported for the logs.
+     * A failed fetch is reported the same way an empty one is, rather than as
+     * its own error: the question was about the wind on a runway, and "el SMN
+     * no responde" is a truthful answer to a question nobody asked. The
+     * exception is still reported for the logs.
      *
      * @param  array<int, Runway>  $runways
      */
@@ -998,6 +1001,24 @@ class WhatsappBotService
         $code = $this->aerometStations->codeForName($name, $indicator);
 
         if ($code !== null) {
+            $stationName = $this->aerometStations->nameFor($code);
+            $stationIcao = $this->airports->icaoForStationName($stationName);
+
+            if ($stationIcao !== null) {
+                try {
+                    $metars = $this->metarService->getMetars($stationIcao);
+                } catch (\Throwable $e) {
+                    report($e);
+
+                    $metars = [];
+                }
+
+                if ($metars !== []) {
+                    return $this->formatNearbyMetarRunwayWind($name, $icao ?? $indicator, $runways, $metars[0], $stationName)
+                        ->withMenu($this->menuFor('metar', $indicator, $from));
+                }
+            }
+
             try {
                 $observations = $this->aeromet->getObservations($code);
             } catch (\Throwable $e) {
@@ -1032,6 +1053,41 @@ class WhatsappBotService
         $wind = SurfaceWind::fromMetar(MetarConditions::fromRaw($metar->raw));
 
         $lines = [
+            '```'.($wind->group ?? $metar->raw).'```',
+            ...$this->runwayWindLines($runways, $wind, 'No pude leer el grupo de viento de este METAR, así que no puedo calcular el componente.'),
+            '',
+            $this->sourceCredit($metar->isRelayed()),
+        ];
+
+        return WhatsappReply::ofMany(
+            $this->withHeader($header, $this->splitToFit(implode("\n", $lines), $budget)),
+        );
+    }
+
+    /**
+     * The same message as formatRunwayWind, computed off a nearby aerodrome's
+     * METAR instead — for a locality where the AEROMET station resolved for
+     * it is itself a real, METAR-publishing aerodrome (Santa Rosa, for El
+     * Pampero) rather than a bare AEROMET-only town. A METAR beats the SYNOP
+     * AEROMET falls back to whenever there is a choice between the two: it is
+     * the fresher, purpose-built report.
+     *
+     * Where the wind was measured leads the message for the same reason it
+     * does in formatAerometRunwayWind: the reading is from a station
+     * somewhere else in the same locality, not from this aerodrome's own
+     * field.
+     *
+     * @param  array<int, Runway>  $runways
+     */
+    protected function formatNearbyMetarRunwayWind(string $airportName, string $code, array $runways, Metar $metar, string $stationName): WhatsappReply
+    {
+        $header = "🛬 *{$airportName}* ({$code})";
+        $budget = self::MAX_MESSAGE_LENGTH - mb_strlen($header) - 12;
+        $wind = SurfaceWind::fromMetar(MetarConditions::fromRaw($metar->raw));
+
+        $lines = [
+            "📍 Sin METAR acá: el componente sale del METAR de *{$stationName}*.",
+            '',
             '```'.($wind->group ?? $metar->raw).'```',
             ...$this->runwayWindLines($runways, $wind, 'No pude leer el grupo de viento de este METAR, así que no puedo calcular el componente.'),
             '',

@@ -137,6 +137,34 @@ class AirportResolver
     }
 
     /**
+     * The ICAO/OACI code of the real aerodrome behind an AEROMET station name,
+     * or null when none of MADHEL's aerodromes is named exactly that.
+     *
+     * AEROMET's 119 stations mostly sit over a bare locality — nothing else in
+     * MADHEL shares their name — but a handful, Santa Rosa among them, are
+     * also a full aerodrome with its own METAR: AerometStationResolver's
+     * "SANTA ROSA" and Airport's "SANTA ROSA" (OSA, SAZR) name the same place.
+     * A caller with no METAR of its own but an AEROMET station resolved for
+     * its locality uses this to check whether that station is one of those,
+     * so a real METAR is preferred over the SYNOP AEROMET falls back to.
+     *
+     * Compared accent- and case-insensitively for the same reason
+     * AerometStationResolver::matchExact() is: JUNÍN publishes a METAR under
+     * the accent, but the station is plain ASCII "JUNIN".
+     */
+    public function icaoForStationName(string $stationName): ?string
+    {
+        $normalized = $this->normalize($stationName);
+
+        return Airport::query()
+            ->realAerodromes()
+            ->whereNotNull('icao_code')
+            ->get()
+            ->first(fn (Airport $airport) => $this->normalize($airport->name) === $normalized)
+            ?->icao_code;
+    }
+
+    /**
      * Best-effort airport match from free text, using only cheap deterministic
      * rules — no AI. Returns null when nothing matches confidently, leaving
      * the caller free to escalate to a model.

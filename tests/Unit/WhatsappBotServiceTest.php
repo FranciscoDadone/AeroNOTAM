@@ -2137,6 +2137,29 @@ it('never reports MADHEL silence as an absent service for an aerodrome delegated
 });
 
 /**
+ * is_aip_delegated is MADHEL's own grant to the AIP, not a promise that its
+ * `data` block is empty — General Pico (GPI) is delegated and still
+ * publishes its own fuel, telephone and hours. Until notams:import-aip-details
+ * has read the AIP's record, MADHEL's own data is better than the generic
+ * "not imported yet" line.
+ */
+it('falls back to MADHEL fuel, telephone and hours for a delegated aerodrome the AIP has not been imported for', function () {
+    seedSantaRosaFicha();
+
+    Airport::where('anac_code', 'OSA')->update([
+        'fuel' => 'AVGAS 100LL y/and JET A-1',
+        'telephone' => ['(02954) 434690'],
+        'service_schedule' => 'LUN a VIE 12:00 a 23:00 UTC',
+    ]);
+
+    expect(bot()->reply('osa')->messages[0])
+        ->toContain('⛽ Combustible: AVGAS 100LL y/and JET A-1')
+        ->toContain('☎️ Teléfono: (02954) 434690')
+        ->toContain('🕐 Horario: LUN a VIE 12:00 a 23:00 UTC')
+        ->not->toContain('Todavía no importé la ficha de la AIP');
+});
+
+/**
  * Once notams:import-aip-details has actually read the aerodrome's AIP
  * record, a field it genuinely does not publish is "sin dato publicado en la
  * AIP" — the AIP's own silence, not MADHEL's and not ours.

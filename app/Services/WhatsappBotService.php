@@ -1599,6 +1599,14 @@ class WhatsappBotService
             return ['_Todavía no importé la ficha de MADHEL de este aeródromo (notams:import-airport-details)._'];
         }
 
+        return $this->madhelServiceLines($airport);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function madhelServiceLines(Airport $airport): array
+    {
         $unpublished = 'sin dato publicado en MADHEL';
 
         $lines = [
@@ -1623,7 +1631,15 @@ class WhatsappBotService
     protected function aipServiceLines(Airport $airport): array
     {
         if ($airport->aip_details_updated_at === null) {
-            return ['_Todavía no importé la ficha de la AIP de este aeródromo (notams:import-aip-details)._'];
+            // is_aip_delegated marks MADHEL's own grant to the AIP, not a
+            // promise that MADHEL's block is empty — General Pico (GPI) is
+            // delegated and still carries its own fuel, telephone and hours.
+            // Until the AIP import has run, that is better than nothing.
+            if ($airport->fuel !== null || $airport->telephone !== null || $airport->service_schedule !== null) {
+                return $this->madhelServiceLines($airport);
+            }
+
+            return ['_Todavía no importé la ficha de la AIP de este aeródromo._'];
         }
 
         $unpublished = 'sin dato publicado en la AIP';

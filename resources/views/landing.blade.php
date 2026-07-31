@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FlyBot — NOTAM, METAR y TAF de Argentina, en español y por WhatsApp</title>
-<meta name="description" content="Escribí «EZE» por WhatsApp y recibí los NOTAM activos, el METAR y el TAF de cualquier aeródromo argentino, decodificados a español legible.">
+<meta name="description" content="Es gratis: escribí «EZE» por WhatsApp y recibí los NOTAM, el METAR, el TAF, el PRONAREA y más de cualquier aeródromo argentino, decodificados a español legible.">
 <meta name="theme-color" content="#ffffff">
 <meta property="og:title" content="FlyBot — NOTAM, METAR y TAF en español">
-<meta property="og:description" content="El parte aeronáutico argentino, decodificado y por WhatsApp.">
+<meta property="og:description" content="Gratis: el parte aeronáutico argentino, decodificado y por WhatsApp.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="{{ url('/images/flybot-og.jpg') }}">
 <link rel="icon" href="/favicon.ico" sizes="any">
@@ -41,9 +41,14 @@
 <header id="top" class="py-14 sm:py-20">
   <div class="mx-auto grid w-full max-w-[1120px] grid-cols-1 items-start gap-12 px-6 lg:grid-cols-[1fr_360px] lg:gap-16">
     <div>
-      <span class="inline-flex items-center rounded-lg border border-air/25 bg-air-soft px-3 py-1.5 font-mono text-xs font-medium tracking-[0.1em] text-air uppercase">
-        Tu asistente aeronáutico · Argentina
-      </span>
+      <div class="flex flex-wrap items-center gap-2.5">
+        <span class="inline-flex items-center rounded-lg border border-air/25 bg-air-soft px-3 py-1.5 font-mono text-xs font-medium tracking-[0.1em] text-air uppercase">
+          Tu asistente aeronáutico · Argentina
+        </span>
+        <span class="inline-flex items-center rounded-lg border border-wa/25 bg-[#e7f7ee] px-3 py-1.5 font-mono text-xs font-medium tracking-[0.1em] text-wa uppercase">
+          Gratis
+        </span>
+      </div>
 
       <h1 class="mt-6 mb-5 text-[clamp(2.1rem,4.3vw,3.1rem)] font-semibold leading-[1.08] tracking-[-0.03em]">
         NOTAM, METAR y TAF de los aeródromos argentinos,
@@ -51,15 +56,16 @@
       </h1>
 
       <p class="max-w-[34em] text-[clamp(1.08rem,1.6vw,1.25rem)] leading-relaxed text-muted">
-        Escribí <b class="font-semibold text-body">«EZE»</b> y recibí los NOTAM activos, el estado
-        del tiempo y el pronóstico de cualquier aeródromo de Argentina — decodificados a
-        español legible, con el texto crudo siempre a la vista.
+        Escribí <b class="font-semibold text-body">«EZE»</b> y recibí, gratis y sin límite de
+        consultas, los NOTAM activos, el estado del tiempo y el pronóstico de cualquier
+        aeródromo de Argentina — decodificados a español legible, con el texto crudo siempre
+        a la vista.
       </p>
 
       <div id="empezar" class="mt-9 max-w-[580px] rounded-2xl border border-line bg-panel p-6 sm:p-8">
         <div class="mb-6 flex items-baseline justify-between gap-4">
           <h2 class="text-xl font-semibold tracking-[-0.015em]">Empezá en 30 segundos</h2>
-          <span class="hidden font-mono text-xs text-dim sm:block">sin registro · sin app</span>
+          <span class="hidden font-mono text-xs text-dim sm:block">gratis · sin registro · sin app</span>
         </div>
 
         <ol class="grid gap-5">
@@ -136,6 +142,16 @@
               <li>• Temporario el 28 entre 08:00 y 12:00 UTC…</li>
             </ul>
           </div>
+
+          <div class="max-w-[88%] justify-self-end rounded-xl rounded-br-sm bg-[#d7f4c8] px-3 py-2 font-medium">qué pista conviene?</div>
+
+          <div class="max-w-[92%] justify-self-start rounded-xl rounded-bl-sm border border-line-soft bg-ink px-3 py-2.5">
+            <b class="font-semibold">Viento en pista — SAEZ</b>
+            <ul class="mt-1 grid gap-1 text-muted">
+              <li>✅ RWY 35 — de frente 15 kt · cruzado 1 kt (izq)</li>
+              <li>RWY 17 — de cola 15 kt · cruzado 1 kt (izq)</li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
@@ -146,7 +162,7 @@
   <div class="mx-auto w-full max-w-[1120px] px-6">
     <div class="mb-12 max-w-[42em]">
       <span class="eyebrow">Qué le podés pedir</span>
-      <h2 class="sec-title mt-3 mb-4">Cuatro respuestas, un solo chat.</h2>
+      <h2 class="sec-title mt-3 mb-4">Ocho respuestas, un solo chat.</h2>
       <p class="text-lg text-muted">
         Escribís como hablás. El bot resuelve de qué aeródromo hablás y qué le estás
         preguntando; si el nombre es ambiguo —Córdoba tiene tres— pregunta en vez de
@@ -171,6 +187,26 @@
         <div class="mt-auto pt-5"><span class="rounded-md bg-air-soft px-2.5 py-1 font-mono text-[0.78rem] font-medium text-air">"pronóstico de Aeroparque"</span></div>
       </div>
       <div class="card">
+        <h3>PRONAREA</h3>
+        <p>El pronóstico de área que emite el SMN por FIR, para cuando lo que importa es la ruta y no sólo el aeródromo de destino.</p>
+        <div class="mt-auto pt-5"><span class="rounded-md bg-air-soft px-2.5 py-1 font-mono text-[0.78rem] font-medium text-air">"pronarea EZE"</span></div>
+      </div>
+      <div class="card">
+        <h3>AEROMET</h3>
+        <p>Si el aeródromo no tiene METAR —o directamente no tiene código OACI—, la observación de la estación AEROMET más cercana, la misma red que también cubre localidades sin aeródromo.</p>
+        <div class="mt-auto pt-5"><span class="rounded-md bg-air-soft px-2.5 py-1 font-mono text-[0.78rem] font-medium text-air">"aeromet junín"</span></div>
+      </div>
+      <div class="card">
+        <h3>Viento en pista</h3>
+        <p>Componente a favor y cruzado para cada cabecera, calculado con el METAR —o el AEROMET si no hay— contra el rumbo real de cada pista.</p>
+        <div class="mt-auto pt-5"><span class="rounded-md bg-air-soft px-2.5 py-1 font-mono text-[0.78rem] font-medium text-air">"viento cruzado en Ezeiza"</span></div>
+      </div>
+      <div class="card">
+        <h3>Crepúsculo</h3>
+        <p>Salida y puesta del sol, según el Servicio de Hidrografía Naval, para la localidad de cualquier aeródromo del país.</p>
+        <div class="mt-auto pt-5"><span class="rounded-md bg-air-soft px-2.5 py-1 font-mono text-[0.78rem] font-medium text-air">"crepúsculo Santa Rosa"</span></div>
+      </div>
+      <div class="card">
         <h3>Alertas</h3>
         <p>El bot te escribe solo cuando el clima cambia de verdad. Un botón en cada METAR o una frase.</p>
         <div class="mt-auto pt-5"><span class="rounded-md bg-air-soft px-2.5 py-1 font-mono text-[0.78rem] font-medium text-air">"avisame EZE"</span></div>
@@ -189,6 +225,10 @@
           <span class="chip">cómo está el clima en Bariloche?</span>
           <span class="chip">va a llover en SAEZ?</span>
           <span class="chip">cómo va a estar el tiempo mañana?</span>
+          <span class="chip">pronarea EZE</span>
+          <span class="chip">aeromet junín</span>
+          <span class="chip">qué pista conviene?</span>
+          <span class="chip">crepúsculo Santa Rosa</span>
           <span class="chip">avisame EZE por 6 horas</span>
           <span class="chip">mis alertas</span>
           <span class="chip">baja EZE</span>
@@ -200,6 +240,7 @@
           <li><span><strong>Una pregunta sobre mañana</strong> se contesta con el pronóstico, no con la observación de ahora.</span></li>
           <li><span>Si escribiste <strong>«notam»</strong>, eso recibís: sabés lo que pediste.</span></li>
           <li><span>Si el nombre coincide con varios aeródromos, te muestra la lista y espera el código. Mandar los NOTAM del aeródromo equivocado es peor que repreguntar.</span></li>
+          <li><span>Después de cada respuesta, un botón para pedir lo que sigue del mismo aeródromo —NOTAM, METAR, TAF o crepúsculo— sin volver a escribir el código.</span></li>
         </ul>
       </div>
     </div>
@@ -237,7 +278,7 @@
       @endforeach
     </div>
 
-    <div class="mt-5 grid gap-5 lg:grid-cols-3">
+    <div class="mt-5 grid gap-5 lg:grid-cols-2">
       <div class="card">
         <h3>El crudo, siempre arriba</h3>
         <p>Cada respuesta empieza por el reporte tal como se emitió. La explicación va debajo, y podés ignorarla: nunca reemplaza al texto que estás acostumbrado a leer.</p>
@@ -249,6 +290,10 @@
       <div class="card">
         <h3>Siempre el vigente</h3>
         <p>Un METAR queda superado en cuanto sale el siguiente, así que recibís ese y no una lista vieja. Del TAF, además, te avisa si viene enmendado (AMD) o cancelado (CNL).</p>
+      </div>
+      <div class="card">
+        <h3>Aeródromo cerrado, dicho de entrada</h3>
+        <p>Si el aeródromo está cerrado, el bot lo pone en el encabezado del NOTAM, no como un ítem más de la lista — para que no se lea como «está todo bien» cuando no lo está.</p>
       </div>
     </div>
 
@@ -356,7 +401,7 @@
       <h2 class="text-[clamp(1.7rem,3vw,2.2rem)] font-semibold tracking-[-0.025em]">Probalo con tu aeródromo.</h2>
       <p class="mx-auto mt-4 mb-8 max-w-[52ch] text-lg text-muted">
         Mandale «EZE» —o cualquier aeródromo de Argentina— y ves la respuesta completa
-        en el chat. Sin registro, sin instalar nada.
+        en el chat. Gratis, sin registro y sin instalar nada.
       </p>
       @if ($link)
         <a href="{{ $link }}" target="_blank" rel="noopener" class="btn bg-wa text-white hover:bg-[#0b5f33]">Abrir en WhatsApp →</a>

@@ -20,6 +20,8 @@ use Illuminate\Support\Str;
  */
 class AerometStationResolver
 {
+    public function __construct(protected AirportResolver $airports) {}
+
     /**
      * Every AEROMET station, by WMO/OMM code.
      *
@@ -191,16 +193,36 @@ class AerometStationResolver
      * "SAN CARLOS DE BARILOCHE" contains AEROMET's "SAN CARLOS", a station in
      * Mendoza 900 km away. A missing button is a small loss; a wind from the
      * wrong province is not.
+     *
+     * Neither half always works: CLUB DE PLANEADORES SANTA ROSA / AERÓDROMO EL
+     * PAMPERO names its own club and its own building, not the city, the same
+     * gap SunCityResolver::cityFor() hits for its sunset. So when $anacCode is
+     * given, a miss falls back to MADHEL's city_reference for it — the same
+     * registry question asked there, and the reason this one takes an ANAC
+     * code at all.
      */
-    public function codeForName(string $name): ?string
+    public function codeForName(string $name, ?string $anacCode = null): ?string
     {
         foreach ([$name, ...explode('/', $name)] as $candidate) {
-            $normalized = $this->normalize(trim($candidate));
+            $code = $this->matchExact($candidate);
 
-            foreach (self::STATIONS as $stationName => $code) {
-                if ($this->normalize($stationName) === $normalized) {
-                    return $code;
-                }
+            if ($code !== null) {
+                return $code;
+            }
+        }
+
+        $reference = $anacCode === null ? null : $this->airports->find($anacCode)?->city_reference;
+
+        return $reference === null ? null : $this->matchExact($reference);
+    }
+
+    protected function matchExact(string $candidate): ?string
+    {
+        $normalized = $this->normalize(trim($candidate));
+
+        foreach (self::STATIONS as $stationName => $code) {
+            if ($this->normalize($stationName) === $normalized) {
+                return $code;
             }
         }
 

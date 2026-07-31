@@ -1778,6 +1778,25 @@ it('offers AEROMET under an aerodrome that will never have a METAR', function ()
 });
 
 /**
+ * CLUB DE PLANEADORES SANTA ROSA / AERÓDROMO EL PAMPERO names its own club
+ * and its own building on both halves of its name — neither is "SANTA ROSA" —
+ * so the offer can only come from MADHEL's city_reference, the same registry
+ * fallback SunCityResolver::cityFor() already leans on for this aerodrome.
+ */
+it('offers AEROMET under an aerodrome the registry, not the name, places in a covered city', function () {
+    Http::fake();
+    config(['services.twilio.content_sid_aeromet' => 'HXaeromet']);
+
+    Airport::where('anac_code', 'ELP')->update(['city_reference' => 'Santa Rosa']);
+
+    $reply = bot()->reply('metar elp');
+
+    expect($reply->messages[0])->toContain('no tiene código OACI')
+        ->and($reply->button->contentSid)->toBe('HXaeromet')
+        ->and($reply->button->payloadValue)->toBe('87623:ELP');
+});
+
+/**
  * The aerodrome rides in the payload because the station cannot give it back:
  * Coronel Suárez the locality holds three aerodromes, and the question was
  * about one of them.

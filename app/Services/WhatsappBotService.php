@@ -826,7 +826,7 @@ class WhatsappBotService
         // takes either, and the button grammar has always allowed three letters.
         $name = $this->airports->nameFor($indicator);
 
-        return $name !== null && $this->aerometStations->codeForName($name) !== null
+        return $name !== null && $this->aerometStations->codeForName($name, $indicator) !== null
             ? ReplyButton::runwayWind($indicator)
             : null;
     }
@@ -841,7 +841,7 @@ class WhatsappBotService
      */
     protected function aerometOffer(string $indicator, string $name): ?ReplyButton
     {
-        $code = $this->aerometStations->codeForName($name);
+        $code = $this->aerometStations->codeForName($name, $indicator);
 
         return $code === null
             ? null
@@ -995,7 +995,7 @@ class WhatsappBotService
      */
     protected function aerometRunwayWindReply(string $indicator, string $name, ?string $icao, array $runways, ?string $from): WhatsappReply
     {
-        $code = $this->aerometStations->codeForName($name);
+        $code = $this->aerometStations->codeForName($name, $indicator);
 
         if ($code !== null) {
             try {
@@ -1841,7 +1841,7 @@ class WhatsappBotService
 
         $name = $this->airports->nameFor($anacCode);
 
-        return $name === null ? null : $this->aerometStations->codeForName($name);
+        return $name === null ? null : $this->aerometStations->codeForName($name, $anacCode);
     }
 
     /**

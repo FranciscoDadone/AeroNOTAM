@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Airport;
 use App\Support\AerometStationResolver;
 
 function aerometStations(): AerometStationResolver
@@ -63,4 +64,24 @@ it('matches an aerodrome by the locality half of its name', function () {
 it('returns null for an aerodrome name AEROMET does not cover', function () {
     expect(aerometStations()->codeForName('SAN CARLOS DE BARILOCHE / ARELAUQUEN'))->toBeNull()
         ->and(aerometStations()->codeForName('JUNÍN DE LOS ANDES / CASA DE LATA'))->toBeNull();
+});
+
+/**
+ * CLUB DE PLANEADORES SANTA ROSA / AERÓDROMO EL PAMPERO names its own club
+ * and its own building on both halves — neither is "SANTA ROSA" — so the name
+ * match alone misses it the same way it misses SunCityResolver::cityFor().
+ * MADHEL's city_reference is the only thing that says where it actually is.
+ */
+it('falls back to the registry city_reference when neither half of the name matches', function () {
+    Airport::where('anac_code', 'ELP')->update(['city_reference' => 'Santa Rosa']);
+
+    expect(aerometStations()->codeForName('CLUB DE PLANEADORES SANTA ROSA / AERÓDROMO EL PAMPERO', 'ELP'))
+        ->toBe('87623');
+});
+
+it('does not fall back to city_reference without an ANAC code to look it up by', function () {
+    Airport::where('anac_code', 'ELP')->update(['city_reference' => 'Santa Rosa']);
+
+    expect(aerometStations()->codeForName('CLUB DE PLANEADORES SANTA ROSA / AERÓDROMO EL PAMPERO'))
+        ->toBeNull();
 });

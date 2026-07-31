@@ -33,6 +33,11 @@ use Illuminate\Support\Carbon;
  * @property array<int, string>|null $telephone
  * @property string|null $service_schedule
  * @property Carbon|null $details_updated_at
+ * @property string|null $aip_fuel
+ * @property array<int, string>|null $aip_telephone
+ * @property string|null $aip_service_schedule
+ * @property string|null $aip_ats_frequency
+ * @property Carbon|null $aip_details_updated_at
  */
 class Airport extends Model
 {
@@ -63,6 +68,11 @@ class Airport extends Model
         'telephone',
         'service_schedule',
         'details_updated_at',
+        'aip_fuel',
+        'aip_telephone',
+        'aip_service_schedule',
+        'aip_ats_frequency',
+        'aip_details_updated_at',
     ];
 
     protected function casts(): array
@@ -81,6 +91,8 @@ class Airport extends Model
             'is_aip_delegated' => 'boolean',
             'telephone' => 'array',
             'details_updated_at' => 'datetime',
+            'aip_telephone' => 'array',
+            'aip_details_updated_at' => 'datetime',
         ];
     }
 

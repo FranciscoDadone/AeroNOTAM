@@ -2083,19 +2083,49 @@ it('writes the coordinates in degrees, minutes and seconds', function () {
 });
 
 /**
- * MADHEL leaves `data` empty for the seventeen aerodromes it delegates to the
- * AIP, which are the ones people actually ask about. Silence there is the
- * registry's, not the aerodrome's, and the ficha has to say which.
+ * MADHEL leaves `data` empty for the aerodromes it delegates to the AIP,
+ * which are the ones people actually ask about — but that silence is the
+ * registry's, not the aerodrome's, so the ficha must never report fuel or
+ * telephone as MADHEL's "sin dato publicado" for one of these. Until
+ * notams:import-aip-details has actually read the AIP's own record, the
+ * honest thing to say is that the import has not happened yet.
  */
-it('never reports an unpublished field as an absent service', function () {
+it('never reports MADHEL silence as an absent service for an aerodrome delegated to the AIP', function () {
     seedSantaRosaFicha();
 
     expect(bot()->reply('osa')->messages[0])
-        ->toContain('⛽ Combustible: sin dato publicado en MADHEL')
-        ->toContain('☎️ Teléfono: sin dato publicado en MADHEL')
+        ->not->toContain('sin dato publicado en MADHEL')
         ->not->toContain('no tiene')
+        ->toContain('Todavía no importé la ficha de la AIP')
         // And it points at where the answer does live.
         ->toContain('ais.anac.gob.ar/aip');
+});
+
+/**
+ * Once notams:import-aip-details has actually read the aerodrome's AIP
+ * record, a field it genuinely does not publish is "sin dato publicado en la
+ * AIP" — the AIP's own silence, not MADHEL's and not ours.
+ */
+it('reports a field the AIP itself does not publish, once its ficha has been imported', function () {
+    seedSantaRosaFicha();
+
+    Airport::where('anac_code', 'OSA')->update([
+        'aip_fuel' => null,
+        'aip_telephone' => null,
+        'aip_service_schedule' => null,
+        'aip_ats_frequency' => '118.30 MHz (CPPL) · 119.70 MHz (CAUX)',
+        'aip_details_updated_at' => now(),
+    ]);
+
+    expect(bot()->reply('osa')->messages[0])
+        ->toContain('⛽ Combustible: sin dato publicado en la AIP')
+        ->toContain('☎️ Teléfono: sin dato publicado en la AIP')
+        ->toContain('📻 Frecuencia: 118.30 MHz (CPPL) · 119.70 MHz (CAUX)')
+        ->not->toContain('sin dato publicado en MADHEL')
+        ->not->toContain('no tiene')
+        // Already imported, so the ficha no longer sends the reader off-app.
+        ->not->toContain('MADHEL remite a la AIP')
+        ->toContain('Combustible, teléfono, horario y frecuencia según la AIP');
 });
 
 it('shows the fuel and telephone of an aerodrome MADHEL does publish them for', function () {
@@ -2352,7 +2382,10 @@ it('does not offer the runway wind on a ficha with no runways', function () {
 it('splits a ficha that carries the button to the smaller template budget', function () {
     seedSantaRosaFicha();
     Airport::where('anac_code', 'OSA')->update([
-        'service_schedule' => str_repeat('LUN a VIE 12:00 a 21:00 HR UTC, SAB y DOM O/R. ', 40),
+        // OSA is delegated to the AIP, so it is aip_service_schedule the
+        // ficha reads — the plain MADHEL column is never consulted for it.
+        'aip_service_schedule' => str_repeat('LUN a VIE 12:00 a 21:00 HR UTC, SAB y DOM O/R. ', 40),
+        'aip_details_updated_at' => now(),
     ]);
     config(['services.twilio.content_sid_pista' => 'HXpista']);
 

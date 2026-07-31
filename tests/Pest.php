@@ -111,6 +111,67 @@ function fakeMadhelDetails(array $codes = ['OSA', 'CIF'], array $extra = []): vo
 }
 
 /**
+ * A slice of the AIP's "Ad" document listing (GET /aip/ad), matching the
+ * shape captured from ais.anac.gob.ar: two AD-2.0 rows — OSA (Santa Rosa) and
+ * EZE (Ezeiza) — plus one non-AD-2.0 row that AipService::parseListing() must
+ * ignore. The real listing carries 51 AD-2.0 documents; this one carries two
+ * on purpose, so fakeAipDocuments() lowers the minimum-document floor to
+ * match rather than padding the fixture out to a realistic size.
+ */
+function aipAdListingFixture(): string
+{
+    return file_get_contents(__DIR__.'/Fixtures/aip/ad_listing.html');
+}
+
+/**
+ * The plain text notams:import-aip-details actually parses — what
+ * smalot/pdfparser extracts from one real "Datos del AD" PDF. Kept as text
+ * rather than the PDF itself so AipAdDetailsTest is not coupled to which PDF
+ * library does the extracting.
+ */
+function aipAdTextFixture(string $anacCode): string
+{
+    return file_get_contents(__DIR__."/Fixtures/aip/text/{$anacCode}.txt");
+}
+
+/**
+ * OSA's real "Datos del AD" PDF, captured verbatim — for the one test that
+ * has to exercise the actual download-then-parse pipeline rather than the
+ * parser alone.
+ */
+function aipPdfFixture(): string
+{
+    return file_get_contents(__DIR__.'/Fixtures/aip/pdf/OSA.pdf');
+}
+
+/**
+ * Stubs the AIP's document listing and, for each code in $codes, its PDF
+ * download — both at the exact URLs ad_listing.html embeds. Every code
+ * defaults to serving OSA's PDF, since the command never reads an aerodrome's
+ * fields back out of the bytes it downloaded for a *different* one; a test
+ * that cares which PDF a code got should pass it in $extra.
+ *
+ * @param  array<int, string>  $codes
+ * @param  array<string, mixed>  $extra  Code (or 'listing') => raw Http::response() to serve instead.
+ */
+function fakeAipDocuments(array $codes = ['OSA'], array $extra = []): void
+{
+    config(['services.aip.minimum_ad_documents' => 1]);
+
+    $hrefs = ['OSA' => 'aip-test-osa', 'EZE' => 'aip-test-eze'];
+
+    $fakes = [
+        '*/aip/ad' => $extra['listing'] ?? Http::response(aipAdListingFixture()),
+    ];
+
+    foreach ($codes as $code) {
+        $fakes["*/descarga/{$hrefs[$code]}"] = $extra[$code] ?? Http::response(aipPdfFixture());
+    }
+
+    Http::fake($fakes);
+}
+
+/**
  * HTML captured verbatim from ssl.smn.gob.ar/mensajes — the legacy application
  * that www.smn.gob.ar/metar and /taf embed in an iframe. Same reasoning as the
  * ANAC fixtures: the scraper is the only thing standing between us and a

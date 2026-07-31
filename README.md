@@ -33,6 +33,10 @@ OurAirports (CSV)      ┼→ notams:import-runways → tabla runways → Runway
 NOAA WMM    (API JSON) ┘   (declinación magnética)                 (componente de viento)
                        └→ notams:import-airport-details → tabla airports → ficha
                           (ubicación, elevación, FIR, combustible, teléfono)
+
+AIP (PDF, scraping)    → notams:import-aip-details → tabla airports → ficha
+                          (combustible, teléfono, horario, frecuencia ATS —
+                          sólo para los aeródromos que MADHEL delega a la AIP)
 ```
 
 - **`AnacNotamService`** habla con ANAC y parsea su HTML. Devuelve NOTAM crudos
@@ -151,7 +155,7 @@ los tres procesos que la aplicación necesita para estar entera:
 | --- | --- |
 | `app` | La API REST y el webhook de WhatsApp, en `:8090` (`APP_PORT` lo cambia). |
 | `queue` | `queue:work`. **Sin él el bot no contesta**: toda respuesta sale de un job. |
-| `scheduler` | `schedule:work`: `notams:refresh-airports`, `notams:import-madhel`, `notams:import-runways`, `notams:import-airport-details` y la ronda de `metar:watch`. |
+| `scheduler` | `schedule:work`: `notams:refresh-airports`, `notams:import-madhel`, `notams:import-runways`, `notams:import-airport-details`, `notams:import-aip-details` y la ronda de `metar:watch`. |
 
 Un cuarto servicio, `migrate`, corre una vez antes que los demás y termina:
 migra, siembra los aeródromos y pone la base en modo WAL. Tenerlo aparte es lo
@@ -304,10 +308,12 @@ Aeródromo público controlado · OSA / SAZR / RSA
 Pistas
 • 01/19 — 2300 × 30 m — asfalto — balizada
 
-⛽ Combustible: sin dato publicado en MADHEL
-☎️ Teléfono: sin dato publicado en MADHEL
+⛽ Combustible: AVGAS 100LL y/and JET A-1
+☎️ Teléfono: (+54 2954) 434690 · (+54 2954) 434490 · (+54 9 2954) 506705 · (+54 9 2954) 506740
+🕐 Horario: LUN a VIE 12:00 a 23:00 UTC. SÁB 17:00 a 23:00 UTC. DOM 13:00 a 21:00 UTC
+📻 Frecuencia: TWR/APP SANTA ROSA TORRE — 118.30 MHz (CPPL) · 119.70 MHz (CAUX)
 
-MADHEL remite a la AIP para este aeródromo: ais.anac.gob.ar/aip
+Combustible, teléfono, horario y frecuencia según la AIP.
 ```
 
 Se pide sola (`"osa"`, `"santa rosa"`, `"sazr"`) o por su nombre (`"info osa"`,
@@ -320,21 +326,40 @@ y sólo se manda cuando hay rumbos cargados, que es justamente cuando la ficha
 tuvo una lista con la que provocarla.
 
 **"Sin dato publicado" nunca quiere decir "no tiene".** MADHEL deja el bloque
-`data` vacío para los diecisiete aeródromos que delega al AIP — que son
-justamente los más consultados — y publica combustible para apenas uno de cada
-siete. Decir "no hay combustible" por eso sería inventar un dato sobre un lugar
-al que alguien está por volar. Cuando la ficha ni siquiera se importó todavía,
-la respuesta lo dice con esas palabras, en vez de atribuirle a MADHEL un
-silencio que es nuestro.
+`data` vacío para los aeródromos que delega a la AIP — que son justamente los
+más consultados, Santa Rosa entre ellos — y publica combustible para apenas
+uno de cada siete de los que no delega. Decir "no hay combustible" por eso
+sería inventar un dato sobre un lugar al que alguien está por volar. Cuando
+la ficha ni siquiera se importó todavía, la respuesta lo dice con esas
+palabras, en vez de atribuirle a MADHEL (o a la AIP) un silencio que es
+nuestro.
+
+Para los aeródromos delegados, combustible, teléfono y horario —y la
+frecuencia de torre/aproximación, que MADHEL nunca publicó para nadie— salen
+de ahí en cambio: la AIP publica una ficha AD-2 en PDF por aeródromo, y
+`notams:import-aip-details` es lo que la lee. Hasta que ese import corre por
+primera vez para un aeródromo delegado, la ficha lo dice así en vez de
+mostrar "sin dato publicado":
+
+```
+⛽ Combustible: sin dato publicado en la AIP
+☎️ Teléfono: sin dato publicado en la AIP
+
+Todavía no importé la ficha de la AIP de este aeródromo (notams:import-aip-details).
+```
 
 Las dimensiones y la superficie vienen de las dos mismas fuentes que los rumbos
 y con el mismo reparto — ver
-[Componente de viento en pista](#componente-de-viento-en-pista). Los datos de
-MADHEL se importan con un comando semanal:
+[Componente de viento en pista](#componente-de-viento-en-pista). Los datos se
+importan con dos comandos semanales, el segundo detrás del primero porque
+depende de qué aeródromos quedaron marcados como delegados a la AIP:
 
 ```bash
-php artisan notams:import-airport-details            # todo el registro, ~5 min
+php artisan notams:import-airport-details            # todo el registro MADHEL, ~5 min
 php artisan notams:import-airport-details --only=OSA # un aeródromo
+
+php artisan notams:import-aip-details                 # sólo los delegados a la AIP, ~40
+php artisan notams:import-aip-details --only=OSA      # un aeródromo
 ```
 
 ### Componente de viento en pista
@@ -454,9 +479,10 @@ php artisan queue:work --tries=3
 En producción esto va bajo systemd o supervisor, junto con
 `php artisan schedule:work` para el refresco horario de aeródromos
 (`notams:refresh-airports`), los imports semanales del registro
-(`notams:import-madhel`), de las pistas (`notams:import-runways`) y de las
-fichas (`notams:import-airport-details`), y la ronda de alertas
-(`metar:watch`).
+(`notams:import-madhel`), de las pistas (`notams:import-runways`), de las
+fichas de MADHEL (`notams:import-airport-details`) y de las fichas de la AIP
+para los aeródromos delegados (`notams:import-aip-details`), y la ronda de
+alertas (`metar:watch`).
 
 ### El registro de aeródromos
 
@@ -483,7 +509,9 @@ El snapshot lleva sólo lo que trae el endpoint de listado: nombre, códigos,
 clasificación y coordenadas. La ubicación relativa, la elevación, el FIR, el
 combustible y el teléfono viven en el detalle por aeródromo y los trae
 `notams:import-airport-details`, que —como `notams:import-runways`— no tiene
-snapshot y hay que correr una vez a mano en una instalación nueva.
+snapshot y hay que correr una vez a mano en una instalación nueva. Detrás de
+ese, y por la misma razón, `notams:import-aip-details` trae de la AIP lo que
+MADHEL deja en blanco para los aeródromos que le delega.
 
 ### Alertas: "avisame si cambia"
 

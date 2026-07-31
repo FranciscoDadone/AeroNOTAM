@@ -1275,7 +1275,13 @@ class WhatsappBotService
 
         if ($airport->is_aip_delegated) {
             $lines[] = '';
-            $lines[] = '_MADHEL remite a la AIP para este aeródromo: ais.anac.gob.ar/aip_';
+            // Once notams:import-aip-details has actually read that record,
+            // pointing the reader at the AIP themselves is redundant with the
+            // lines above, which already come from it — a short attribution
+            // says so instead of sending them to fetch what they just read.
+            $lines[] = $airport->aip_details_updated_at === null
+                ? '_MADHEL remite a la AIP para este aeródromo: ais.anac.gob.ar/aip_'
+                : '_Combustible, teléfono, horario y frecuencia según la AIP._';
         }
 
         return WhatsappReply::ofMany(
@@ -1519,10 +1525,18 @@ class WhatsappBotService
      * fifteen and a third "sin dato publicado" would be noise rather than
      * information.
      *
+     * Delegated aerodromes are handed off entirely to aipServiceLines(): this
+     * method's own "sin dato publicado" would be a lie about a field MADHEL
+     * never claimed to carry in the first place — it names the AIP instead.
+     *
      * @return array<int, string>
      */
     protected function airportServiceLines(Airport $airport): array
     {
+        if ($airport->is_aip_delegated) {
+            return $this->aipServiceLines($airport);
+        }
+
         if ($airport->details_updated_at === null) {
             // Never asked MADHEL about this one. Saying "sin dato publicado"
             // here would be reporting our own gap as the registry's.
@@ -1538,6 +1552,37 @@ class WhatsappBotService
 
         if ($airport->service_schedule !== null) {
             $lines[] = "🕐 Horario: {$airport->service_schedule}";
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Same three lines as airportServiceLines(), sourced from the AIP instead
+     * of MADHEL, plus a fourth MADHEL never had for anyone: the tower/approach
+     * frequency, from notams:import-aip-details.
+     *
+     * @return array<int, string>
+     */
+    protected function aipServiceLines(Airport $airport): array
+    {
+        if ($airport->aip_details_updated_at === null) {
+            return ['_Todavía no importé la ficha de la AIP de este aeródromo (notams:import-aip-details)._'];
+        }
+
+        $unpublished = 'sin dato publicado en la AIP';
+
+        $lines = [
+            '⛽ Combustible: '.($airport->aip_fuel ?? $unpublished),
+            '☎️ Teléfono: '.($airport->aip_telephone === null ? $unpublished : implode(' · ', $airport->aip_telephone)),
+        ];
+
+        if ($airport->aip_service_schedule !== null) {
+            $lines[] = "🕐 Horario: {$airport->aip_service_schedule}";
+        }
+
+        if ($airport->aip_ats_frequency !== null) {
+            $lines[] = "📻 Frecuencia: {$airport->aip_ats_frequency}";
         }
 
         return $lines;

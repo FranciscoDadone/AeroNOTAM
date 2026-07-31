@@ -41,6 +41,18 @@ return [
         'notams_ttl' => env('ANAC_NOTAM_TTL', 300),
     ],
 
+    // The AIP itself — same host as the NOTAM service, different application —
+    // read only by notams:import-aip-details, for the aerodromes MADHEL
+    // delegates to it instead of publishing fuel, telephone and hours itself.
+    'aip' => [
+        'base_url' => env('AIP_BASE_URL', 'https://ais.anac.gob.ar'),
+
+        // Below this the "Ad" listing is treated as truncated and the import
+        // is abandoned, rather than importing a handful of aerodromes as if
+        // the AIP had stopped publishing the rest.
+        'minimum_ad_documents' => env('AIP_MINIMUM_AD_DOCUMENTS', 30),
+    ],
+
     // ANAC's aerodrome registry (MADHEL), on a different host than the NOTAM
     // service and read only by notams:import-madhel.
     'madhel' => [

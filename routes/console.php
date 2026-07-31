@@ -35,6 +35,17 @@ Schedule::command('notams:import-runways')->weeklyOn(1, '05:00')->withoutOverlap
 // only carries these on the per-aerodrome record.
 Schedule::command('notams:import-airport-details')->weeklyOn(1, '06:00')->withoutOverlapping();
 
+// Fuel, telephone, hours and ATS frequency for the aerodromes MADHEL delegates
+// to the AIP instead of publishing them itself — the import above leaves
+// exactly those three fields null for exactly this set, and this is what
+// fills them in from the source MADHEL itself points to.
+//
+// An hour behind notams:import-airport-details for the same reason that one
+// is behind notams:import-madhel: it depends on is_aip_delegated, which that
+// import is what sets. Weekly for the same reason as the rest — an AIP
+// amendment landing mid-week is a rare event, not something worth polling for.
+Schedule::command('notams:import-aip-details')->weeklyOn(1, '07:00')->withoutOverlapping();
+
 // Every ten minutes lines up with the METAR cache TTL, so a round costs at most
 // one request per watched station however many people are watching it. Faster
 // would only re-read the cache; slower would mean learning about a SPECI — the

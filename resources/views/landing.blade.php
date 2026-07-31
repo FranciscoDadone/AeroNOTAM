@@ -420,6 +420,10 @@
         <a href="mailto:dadonefran@gmail.com" class="text-air hover:underline">dadonefran@gmail.com</a>
       </p>
       <p>
+        Ideado por <span class="font-medium text-body">Gabriel Jalabert</span> —
+        <a href="mailto:gabyjalabert@gmail.com" class="text-air hover:underline">gabyjalabert@gmail.com</a>
+      </p>
+      <p>
         NOTAM de <a href="https://ais.anac.gob.ar" target="_blank" rel="noopener" class="text-air hover:underline">ANAC</a> ·
         METAR y TAF del <a href="https://www.smn.gob.ar/metar" target="_blank" rel="noopener" class="text-air hover:underline">Servicio Meteorológico Nacional</a>.
       </p>

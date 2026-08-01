@@ -18,6 +18,16 @@ class FakeWhatsappSender implements WhatsappSender
     public array $sentWithButtons = [];
 
     /**
+     * @var array<int, array{to: string, body: string, label: string, rows: array<int, array{id: string, title: string, description?: string}>}>
+     */
+    public array $sentWithList = [];
+
+    /**
+     * @var array<int, array{to: string, url: string, caption: string, filename: string}>
+     */
+    public array $documents = [];
+
+    /**
      * @var array<int, string>
      */
     public array $typing = [];
@@ -46,6 +56,28 @@ class FakeWhatsappSender implements WhatsappSender
         }
 
         $this->sentWithButtons[] = ['to' => $to, 'body' => $body, 'buttons' => $buttons];
+    }
+
+    public function sendWithList(string $to, string $body, string $label, array $rows): void
+    {
+        $this->attempts++;
+
+        if ($this->shouldFail) {
+            throw new RuntimeException('WhatsApp no disponible.');
+        }
+
+        $this->sentWithList[] = ['to' => $to, 'body' => $body, 'label' => $label, 'rows' => $rows];
+    }
+
+    public function sendDocument(string $to, string $url, string $caption, string $filename): void
+    {
+        $this->attempts++;
+
+        if ($this->shouldFail) {
+            throw new RuntimeException('WhatsApp no disponible.');
+        }
+
+        $this->documents[] = ['to' => $to, 'url' => $url, 'caption' => $caption, 'filename' => $filename];
     }
 
     public function indicateTyping(string $inboundMessageId): void
@@ -87,6 +119,19 @@ class FakeWhatsappSender implements WhatsappSender
         return array_merge(...array_map(
             fn (array $message) => array_column($message['buttons'], 'id'),
             $this->sentWithButtons,
+        ) ?: [[]]);
+    }
+
+    /**
+     * The same for the rows of every list sheet offered.
+     *
+     * @return array<int, string>
+     */
+    public function listRowIds(): array
+    {
+        return array_merge(...array_map(
+            fn (array $message) => array_column($message['rows'], 'id'),
+            $this->sentWithList,
         ) ?: [[]]);
     }
 }

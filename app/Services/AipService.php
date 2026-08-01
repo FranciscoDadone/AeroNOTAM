@@ -2,18 +2,20 @@
 
 namespace App\Services;
 
+use App\DataObjects\AipDocument;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 /**
  * The AIP itself — what MADHEL points to for the aerodromes it delegates
- * rather than publishing fuel, telephone and hours on its own record.
+ * rather than publishing fuel, telephone and hours on its own record, and
+ * where every chart an aerodrome has is published.
  *
  * Unlike MADHEL there is no per-aerodrome API: the AIP's "Ad" tab is one
- * listing of every AD document it publishes, and the aerodrome-specific PDF
- * has to be picked out of it by ICAO code. The listing has to be re-read on
- * every import rather than cached by URL, because the download link embeds a
- * hash that changes with each AIRAC amendment.
+ * listing of every AD document it publishes, and an aerodrome's documents have
+ * to be picked out of it by ICAO code. The listing has to be re-read on every
+ * import rather than cached by URL, because the download link embeds a hash
+ * that changes with each AIRAC amendment.
  */
 class AipService
 {
@@ -25,6 +27,16 @@ class AipService
      */
     protected int $minimumAdDocuments;
 
+    /**
+     * The parsed listing, kept for the life of this instance.
+     *
+     * One reply can ask for it twice — the charts to send, then the list of
+     * everything else to offer underneath — and it is one response either way.
+     *
+     * @var array<string, array<int, AipDocument>>|null
+     */
+    protected ?array $listing = null;
+
     public function __construct()
     {
         $this->baseUrl = rtrim(config('services.aip.base_url'), '/');
@@ -34,26 +46,26 @@ class AipService
     /**
      * Every "Datos del AD" document currently published, keyed by ICAO code.
      *
-     * The listing route only answers a request that looks like the SPA's own
-     * XHR — a plain GET 404s — which is why the header is not optional the
-     * way MADHEL's User-Agent is.
+     * The one row notams:import-aip-details reads, out of the dozens each
+     * aerodrome has. Its shape is what that import expects and is deliberately
+     * unchanged — a bare URL per aerodrome — even though the listing behind it
+     * now carries everything else too.
      *
      * @return array<string, string> ICAO code => absolute download URL.
      */
     public function adDocuments(): array
     {
-        $response = Http::timeout(30)
-            ->withHeaders([
-                'User-Agent' => 'Mozilla/5.0',
-                'X-Requested-With' => 'XMLHttpRequest',
-            ])
-            ->get("{$this->baseUrl}/aip/ad");
+        $documents = [];
 
-        if ($response->failed()) {
-            throw new RuntimeException("No se pudo obtener el listado de la AIP (HTTP {$response->status()}).");
+        foreach ($this->listing() as $icaoCode => $rows) {
+            foreach ($rows as $row) {
+                if ($row->code === 'AD-2.0') {
+                    $documents[$icaoCode] = $row->url;
+
+                    break;
+                }
+            }
         }
-
-        $documents = self::parseListing($response->body());
 
         // The AIP has published an AD-2.0 for at least 51 aerodromes at the
         // time this was written. Anything far below that is a truncated
@@ -69,7 +81,26 @@ class AipService
     }
 
     /**
-     * The raw bytes of one "Datos del AD" PDF.
+     * Every AD-2 document the AIP publishes for one aerodrome, in the order the
+     * listing gives them.
+     *
+     * That order is the aerodrome's own AD-2 numbering, so it is stable enough
+     * to point at a document by position — which is what a tapped list row
+     * does, since the download URL is too long-lived-looking to put on a button
+     * and changes with every amendment anyway.
+     *
+     * An aerodrome the AIP publishes nothing for comes back empty rather than
+     * failing: most of the registry is not delegated to the AIP at all.
+     *
+     * @return array<int, AipDocument>
+     */
+    public function documentsFor(string $icaoCode): array
+    {
+        return $this->listing()[strtoupper(trim($icaoCode))] ?? [];
+    }
+
+    /**
+     * The raw bytes of one AIP PDF.
      */
     public function download(string $url): string
     {
@@ -83,16 +114,53 @@ class AipService
     }
 
     /**
-     * Picks the "AD-2.0 ... Datos del AD" row out of the AIP's full document
-     * table — hundreds of rows per aerodrome for charts this import has no
-     * use for (aerodrome plots, approach charts) — by the one label MADHEL
-     * itself points readers at.
+     * The whole "Ad" listing, parsed and grouped by aerodrome.
      *
-     * @return array<string, string>
+     * The listing route only answers a request that looks like the SPA's own
+     * XHR — a plain GET 404s — which is why the header is not optional the way
+     * MADHEL's User-Agent is.
+     *
+     * @return array<string, array<int, AipDocument>>
      */
-    protected static function parseListing(string $html): array
+    protected function listing(): array
     {
-        $pattern = '/<td class="col-xs-9">([A-Z]{4})-AD-2\.0&nbsp;[^<]*<\/td>\s*'
+        if ($this->listing !== null) {
+            return $this->listing;
+        }
+
+        $response = Http::timeout(30)
+            ->withHeaders([
+                'User-Agent' => 'Mozilla/5.0',
+                'X-Requested-With' => 'XMLHttpRequest',
+            ])
+            ->get("{$this->baseUrl}/aip/ad");
+
+        if ($response->failed()) {
+            throw new RuntimeException("No se pudo obtener el listado de la AIP (HTTP {$response->status()}).");
+        }
+
+        return $this->listing = $this->parseListing($response->body());
+    }
+
+    /**
+     * Every "{OACI}-AD-2.x" row of the AIP's document table, grouped by
+     * aerodrome.
+     *
+     * The table is hundreds of rows: for each aerodrome the "Datos del AD"
+     * record, the aerodrome plot, and one chart per instrument procedure it
+     * publishes. Only the AD-2 sections are read — AD-1 is the country-wide
+     * preamble and carries no aerodrome code to group it under.
+     *
+     * Titles come out of the AIP HTML-encoded ("Aer&oacute;dromos"), and are
+     * decoded here rather than at each place that shows or matches one: a
+     * half-decoded title is the kind of thing that reads fine in a list and
+     * silently fails a keyword match.
+     *
+     * @return array<string, array<int, AipDocument>>
+     */
+    protected function parseListing(string $html): array
+    {
+        $pattern = '/<td class="col-xs-9">([A-Z]{4})-(AD-2[^&<]*)&nbsp;([^<]*)<\/td>\s*'
             .'<td[^>]*>\s*<span[^>]*>\s*<a href="([^"]+)"/s';
 
         if (preg_match_all($pattern, $html, $matches, PREG_SET_ORDER) === false) {
@@ -102,9 +170,12 @@ class AipService
         $documents = [];
 
         foreach ($matches as $match) {
-            $documents[$match[1]] = str_starts_with($match[2], 'http')
-                ? $match[2]
-                : rtrim(config('services.aip.base_url'), '/').$match[2];
+            $documents[$match[1]][] = new AipDocument(
+                icaoCode: $match[1],
+                code: trim($match[2]),
+                title: trim(html_entity_decode($match[3], ENT_QUOTES | ENT_HTML5)),
+                url: str_starts_with($match[4], 'http') ? $match[4] : $this->baseUrl.$match[4],
+            );
         }
 
         return $documents;

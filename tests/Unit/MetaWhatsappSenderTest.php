@@ -54,6 +54,50 @@ it('strips the prefix and the plus off the recipient', function () {
     Http::assertSent(fn (Request $request) => $request['to'] === '5491122334455');
 });
 
+/**
+ * The number goes out exactly as WhatsApp reports it. A live number has no
+ * allow-list, so the workaround below must never be what production does.
+ */
+it('leaves an argentine mobile untouched by default', function () {
+    fakeGraph();
+
+    sender()->send('whatsapp:+5492954465433', 'hola');
+
+    Http::assertSent(fn (Request $request) => $request['to'] === '5492954465433');
+});
+
+/**
+ * Only when testing against a test number, whose allow-list matches the string
+ * as sent rather than the wa_id it resolves to.
+ */
+it('drops the nine of an argentine mobile when told to', function () {
+    fakeGraph();
+    config(['services.whatsapp.strip_ar_mobile_nine' => true]);
+
+    sender()->send('whatsapp:+5492954465433', 'hola');
+
+    Http::assertSent(fn (Request $request) => $request['to'] === '542954465433');
+});
+
+/**
+ * The prefix is Argentina's alone. A number from anywhere else, or one that is
+ * already in the shape the allow-list wants, has to come out untouched — the
+ * rule is a workaround, and a workaround that reaches past its case is a bug.
+ */
+it('leaves a number that is not an argentine mobile alone', function (string $number) {
+    fakeGraph();
+    config(['services.whatsapp.strip_ar_mobile_nine' => true]);
+
+    sender()->send("whatsapp:+{$number}", 'hola');
+
+    Http::assertSent(fn (Request $request) => $request['to'] === $number);
+})->with([
+    'already without the nine' => '542954465433',
+    'united states' => '13055550123',
+    'brazil' => '5511998765432',
+    'spain' => '34612345678',
+]);
+
 it('sends buttons inline with the body', function () {
     fakeGraph();
 
@@ -70,6 +114,58 @@ it('sends buttons inline with the body', function () {
                 ['type' => 'reply', 'reply' => ['id' => 'sub:SAEZ:12', 'title' => '🔔 Avisarme 12 h']],
                 ['type' => 'reply', 'reply' => ['id' => 'pista:SAEZ', 'title' => '🛬 Viento en pista']],
             ];
+    });
+});
+
+/**
+ * The way past the three-button ceiling: one labelled button opening a sheet of
+ * rows. A single section, because there is only ever one thing being listed —
+ * and its title is required as soon as there is more than one.
+ */
+it('sends a list sheet inline with the body', function () {
+    fakeGraph();
+
+    sender()->sendWithList('whatsapp:+5491122334455', 'Los demás documentos', '📄 Ver documentos', [
+        ['id' => 'doc:SAZR:1', 'title' => 'Plano de aeródromo', 'description' => 'Cartas relativas al aeródromo'],
+        ['id' => 'doc:SAZR:2', 'title' => 'VOR RWY 19'],
+    ]);
+
+    Http::assertSent(function (Request $request) {
+        $action = $request['interactive']['action'];
+
+        return $request['type'] === 'interactive'
+            && $request['interactive']['type'] === 'list'
+            && $request['interactive']['body']['text'] === 'Los demás documentos'
+            && $action['button'] === '📄 Ver documentos'
+            && count($action['sections']) === 1
+            && $action['sections'][0]['title'] === '📄 Ver documentos'
+            && $action['sections'][0]['rows'] === [
+                ['id' => 'doc:SAZR:1', 'title' => 'Plano de aeródromo', 'description' => 'Cartas relativas al aeródromo'],
+                ['id' => 'doc:SAZR:2', 'title' => 'VOR RWY 19'],
+            ];
+    });
+});
+
+/**
+ * WhatsApp fetches the URL itself, so nothing is uploaded from here — which is
+ * what lets a chart be sent without keeping a copy of it that could go stale
+ * against the amendment that replaced it.
+ */
+it('sends a document by link', function () {
+    fakeGraph();
+
+    sender()->sendDocument(
+        'whatsapp:+5491122334455',
+        'https://ais.anac.gob.ar/descarga/aip-test-osa-vor',
+        '📄 *VOR RWY 19*',
+        'sazr-vor-rwy-19.pdf',
+    );
+
+    Http::assertSent(function (Request $request) {
+        return $request['type'] === 'document'
+            && $request['document']['link'] === 'https://ais.anac.gob.ar/descarga/aip-test-osa-vor'
+            && $request['document']['caption'] === '📄 *VOR RWY 19*'
+            && $request['document']['filename'] === 'sazr-vor-rwy-19.pdf';
     });
 });
 

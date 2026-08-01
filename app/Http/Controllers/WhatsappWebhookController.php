@@ -94,15 +94,20 @@ class WhatsappWebhookController extends Controller
         // the subscriptions — stores it the way WhatsApp writes it.
         $from = isset($message['from']) ? 'whatsapp:+'.$message['from'] : '';
 
-        // Set when the message is a tapped quick-reply button rather than typed
-        // text: the id we put on the button ourselves comes back verbatim. The
-        // caption rides along as the body, which is why the guard below still
-        // holds for a tap.
-        $buttonPayload = (string) ($message['interactive']['button_reply']['id'] ?? '');
+        // Set when the message is a tap rather than typed text: the id we put on
+        // the button ourselves comes back verbatim. The caption rides along as
+        // the body, which is why the guard below still holds for a tap.
+        //
+        // A row of a list sheet arrives under its own key rather than
+        // button_reply's, and is otherwise the same thing — same ids, same
+        // grammar — so both are read into the one payload.
+        $tapped = $message['interactive']['button_reply']
+            ?? $message['interactive']['list_reply']
+            ?? [];
 
-        $body = (string) ($message['text']['body']
-            ?? $message['interactive']['button_reply']['title']
-            ?? '');
+        $buttonPayload = (string) ($tapped['id'] ?? '');
+
+        $body = (string) ($message['text']['body'] ?? $tapped['title'] ?? '');
 
         // Meta anchors the typing indicator to the message being answered.
         $messageId = (string) ($message['id'] ?? '');

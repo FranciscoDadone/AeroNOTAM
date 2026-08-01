@@ -68,7 +68,12 @@ class ProcessWhatsappMessage implements ShouldQueue
 
         $this->deliver($sender, $this->from, $reply);
 
-        $this->log?->recordReply(array_column($reply->outbound(), 0), $startedAt);
+        // In the order they went out, attachments first — a reply that is only
+        // PDFs would otherwise leave an answered row with nothing in it.
+        $this->log?->recordReply([
+            ...array_column($reply->documents, 'caption'),
+            ...array_column($reply->outbound(), 0),
+        ], $startedAt);
     }
 
     /**

@@ -259,6 +259,11 @@ return [
         'number' => env('WHATSAPP_NUMBER'),
 
         'graph_version' => env('WHATSAPP_GRAPH_VERSION', 'v25.0'),
+
+        // Sólo para probar contra un número de prueba con un móvil argentino:
+        // su lista de autorizados no acepta la forma 549 que WhatsApp usa en
+        // el mensaje entrante. Ver MetaWhatsappSender::recipient().
+        'strip_ar_mobile_nine' => env('WHATSAPP_STRIP_AR_MOBILE_NINE', false),
     ],
 
 ];

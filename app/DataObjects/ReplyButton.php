@@ -2,6 +2,8 @@
 
 namespace App\DataObjects;
 
+use Illuminate\Support\Str;
+
 /**
  * The one-tap actions offered under a WhatsApp message.
  *
@@ -12,13 +14,33 @@ namespace App\DataObjects;
  * and that ceiling is the whole shape of this class: the follow-up menu has
  * already spent its three on the other topics, so anything else has to ride on
  * the answer itself.
+ *
+ * Unless the set does not fit in three, which is what $listLabel is for. An
+ * aerodrome can have a dozen AIP documents, and WhatsApp's other shape — one
+ * labelled button opening a sheet of up to ten rows — is the only way to offer
+ * them. It is the same thing to everything downstream: same ids, same grammar,
+ * same tap coming back, only drawn differently.
  */
 final readonly class ReplyButton
 {
     /**
-     * @param  array<int, array{id: string, title: string}>  $buttons
+     * How many rows WhatsApp draws in a list sheet.
      */
-    public function __construct(public array $buttons) {}
+    public const MAX_LIST_ROWS = 10;
+
+    /**
+     * A list row's caption is capped shorter than a message's own text and
+     * longer than a button's, with a second line underneath it for the rest.
+     */
+    protected const MAX_ROW_TITLE = 24;
+
+    protected const MAX_ROW_DESCRIPTION = 72;
+
+    /**
+     * @param  array<int, array{id: string, title: string, description?: string}>  $buttons
+     * @param  string|null  $listLabel  Non-null to render as a list sheet under a button with this caption.
+     */
+    public function __construct(public array $buttons, public ?string $listLabel = null) {}
 
     /**
      * "Watch this aerodrome for the next twelve hours" — and, on the same
@@ -136,5 +158,65 @@ final readonly class ReplyButton
             ],
             self::MENU_OFFERS[$topic],
         ));
+    }
+
+    /**
+     * "The other documents this aerodrome has in the AIP" — one row each,
+     * drawn as a list because there are routinely more than three.
+     *
+     * The keys of $documents are their positions in what AipService returns for
+     * the aerodrome, and that position is the whole payload: a download URL
+     * embeds an AIRAC hash that will be wrong by next cycle, so a tap re-reads
+     * the listing and takes the row again rather than carrying a link that
+     * ages.
+     *
+     * A row's caption has room for a good deal less than an AIP title, so the
+     * title is cut down to the part that distinguishes one document from
+     * another — the AIP writes them as "family - specific document", and the
+     * family is the same for every row here — with the whole thing repeated
+     * underneath, where there is room for it.
+     *
+     * Past ten rows WhatsApp draws nothing at all, so the tail is dropped. It
+     * is the tail of the AIP's own ordering, which runs from the aerodrome's
+     * general documents to its individual procedures.
+     *
+     * @param  array<int, AipDocument>  $documents  Keyed by position in AipService::documentsFor().
+     */
+    public static function documents(array $documents): self
+    {
+        $rows = [];
+
+        foreach (array_slice($documents, 0, self::MAX_LIST_ROWS, true) as $index => $document) {
+            $rows[] = [
+                'id' => "doc:{$document->icaoCode}:{$index}",
+                'title' => Str::limit(self::documentLabel($document), self::MAX_ROW_TITLE - 1, '…'),
+                'description' => Str::limit($document->title, self::MAX_ROW_DESCRIPTION - 1, '…'),
+            ];
+        }
+
+        return new self($rows, '📄 Ver documentos');
+    }
+
+    /**
+     * The part of an AIP title worth putting on a row.
+     *
+     * The AIP writes a title as segments running from the general to the
+     * specific — "Cartas relativas al aeródromo - Carta de aproximación por
+     * instrumentos - OACI - VOR RWY 19" — so the last of them is the one that
+     * tells this document from the one under it, which are all that end up on
+     * the same list. "OACI" is dropped along the way: it marks the chart series
+     * and is on nearly every row, so as a caption it would distinguish nothing.
+     *
+     * A title written some other way is left as it is, and the whole of it goes
+     * on the row's second line regardless.
+     */
+    protected static function documentLabel(AipDocument $document): string
+    {
+        $segments = array_filter(
+            array_map('trim', explode(' - ', $document->title)),
+            fn (string $segment) => $segment !== '' && mb_strtoupper($segment) !== 'OACI',
+        );
+
+        return $segments === [] ? $document->code : (string) end($segments);
     }
 }

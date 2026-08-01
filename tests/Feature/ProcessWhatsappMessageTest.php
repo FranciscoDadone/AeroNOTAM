@@ -2,6 +2,7 @@
 
 use App\Contracts\WhatsappSender;
 use App\Jobs\ProcessWhatsappMessage;
+use App\Models\WhatsappMessage;
 use App\Services\WhatsappBotService;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\FakeWhatsappSender;
@@ -112,4 +113,42 @@ it('sends the watch offer and the menu as two separate messages', function () {
         ->toBe(['sub:SAEZ:12', 'pista:SAEZ'])
         ->and(array_column($this->sender->sentWithButtons[1]['buttons'], 'id'))
         ->toBe(['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']);
+});
+
+/**
+ * The one answer that hands over files. They lead — an attachment carries its
+ * own caption, so it says what it is without a message introducing it — and the
+ * text that follows is about the ones that were not sent.
+ */
+it('sends the charts first and offers the rest as a list', function () {
+    fakeAipDocuments();
+
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'carta de aproximación de Santa Rosa'))
+        ->handle(app(WhatsappBotService::class), $this->sender);
+
+    expect($this->sender->documents)->toHaveCount(2)
+        ->and($this->sender->documents[0]['to'])->toBe('whatsapp:+5491111111111')
+        ->and($this->sender->documents[0]['url'])->toBe('https://ais.anac.gob.ar/descarga/aip-test-osa-vor')
+        ->and($this->sender->documents[0]['filename'])->toEndWith('.pdf')
+        ->and($this->sender->sentWithList)->toHaveCount(1)
+        ->and($this->sender->listRowIds())->toBe(['doc:SAZR:0', 'doc:SAZR:1'])
+        ->and($this->sender->sentWithButtons)->toBeEmpty();
+});
+
+/**
+ * A row that is only ever PDFs would otherwise sit in the panel answered and
+ * empty, which is the one state that makes the log worth keeping.
+ */
+it('logs the captions of the files it sent', function () {
+    fakeAipDocuments();
+
+    $log = WhatsappMessage::create([
+        'phone' => 'whatsapp:+5491111111111',
+        'body' => 'carta de aproximación de Santa Rosa',
+    ]);
+
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'carta de aproximación de Santa Rosa', null, null, $log))
+        ->handle(app(WhatsappBotService::class), $this->sender);
+
+    expect($log->fresh()->reply[0])->toContain('VOR RWY 19');
 });

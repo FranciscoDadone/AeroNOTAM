@@ -2424,3 +2424,182 @@ it('splits a ficha that carries the button to the smaller template budget', func
         expect(mb_strlen($message))->toBeLessThanOrEqual(1024);
     }
 });
+
+/*
+|--------------------------------------------------------------------------
+| Las cartas de la AIP
+|--------------------------------------------------------------------------
+|
+| The one answer that hands over a file instead of describing one. Everything
+| here turns on two things: that the aerodrome's documents are read out of the
+| AIP's own listing at the moment they are asked for, and that a chart still
+| goes out when the summary above it could not be written.
+|
+*/
+
+it('sends every approach chart the AIP publishes', function () {
+    fakeAipDocuments();
+
+    $reply = bot()->reply('me podrías dar la carta de aproximación de Santa Rosa?', PHONE);
+
+    expect($reply->documents)->toHaveCount(2)
+        ->and($reply->documents[0]->url)->toBe('https://ais.anac.gob.ar/descarga/aip-test-osa-vor')
+        ->and($reply->documents[1]->url)->toBe('https://ais.anac.gob.ar/descarga/aip-test-osa-rnav');
+});
+
+/**
+ * An aerodrome publishes an approach chart per procedure and per runway, so the
+ * caption is the only thing telling one attachment from the next.
+ */
+it('captions each chart with what it is', function () {
+    fakeAipDocuments();
+
+    expect(bot()->reply('carta de aproximación de Santa Rosa', PHONE)->documents[0]->caption)
+        ->toContain('Carta de aproximación por instrumentos')
+        ->toContain('VOR RWY 19');
+});
+
+/**
+ * Silenced AI is the state every test here runs in, and it is also a real
+ * deployment state. The chart goes out either way.
+ */
+it('sends the chart with its title alone when there is no summary to be had', function () {
+    fakeAipDocuments();
+
+    $caption = bot()->reply('carta de aproximación de Santa Rosa', PHONE)->documents[0]->caption;
+
+    expect($caption)->toStartWith('📄 *')->and(mb_strlen($caption))->toBeLessThanOrEqual(1024);
+});
+
+it('offers the rest of the documents under the charts it sent', function () {
+    fakeAipDocuments();
+
+    $reply = bot()->reply('carta de aproximación de Santa Rosa', PHONE);
+
+    expect(buttonIds($reply->button))->toBe(['doc:SAZR:0', 'doc:SAZR:1'])
+        ->and($reply->button->listLabel)->not->toBeNull();
+});
+
+/**
+ * Asked for documents without saying which, nothing is sent: the list is the
+ * answer, and guessing which of a dozen charts was meant would be the one thing
+ * worse than asking.
+ */
+it('offers the whole list when no kind of document was named', function () {
+    fakeAipDocuments();
+
+    $reply = bot()->reply('documentos AIP de Santa Rosa', PHONE);
+
+    expect($reply->documents)->toBe([])
+        ->and(buttonIds($reply->button))->toBe(['doc:SAZR:0', 'doc:SAZR:1', 'doc:SAZR:2', 'doc:SAZR:3'])
+        ->and($reply->messages[0])->toContain('lo que la AIP publica');
+});
+
+it('sends the aerodrome plot when that is what was asked for', function () {
+    fakeAipDocuments();
+
+    $reply = bot()->reply('plano de aeródromo de Santa Rosa', PHONE);
+
+    expect($reply->documents)->toHaveCount(1)
+        ->and($reply->documents[0]->url)->toBe('https://ais.anac.gob.ar/descarga/aip-test-osa-plano');
+});
+
+it('says so when the AIP publishes no chart of the kind asked for', function () {
+    fakeAipDocuments();
+
+    $reply = bot()->reply('carta de aproximación de Ezeiza', PHONE);
+
+    expect($reply->documents)->toBe([])
+        ->and($reply->messages[0])->toContain('no publica cartas de aproximación')
+        ->and(buttonIds($reply->button))->toBe(['doc:SAEZ:0']);
+});
+
+/**
+ * The AIP indexes its documents by OACI code and nothing else, so an aerodrome
+ * without one will never appear in that listing — and retrying will never help.
+ */
+it('explains that an aerodrome with no OACI code has no AIP documents', function () {
+    fakeAipDocuments();
+
+    $reply = bot()->reply('carta de aproximación de Alta Gracia', PHONE);
+
+    expect($reply->documents)->toBe([])
+        ->and($reply->messages[0])->toContain('no tiene código OACI');
+});
+
+it('does not fail the answer when the AIP listing cannot be read', function () {
+    Http::fake(['*/aip/ad' => Http::response('', 503)]);
+
+    $reply = bot()->reply('carta de aproximación de Santa Rosa', PHONE);
+
+    expect($reply->documents)->toBe([])
+        ->and($reply->messages[0])->toContain('no pude leer el listado');
+});
+
+it('routes a request for a chart to the charts', function (string $message) {
+    fakeAipDocuments();
+
+    $bot = bot();
+    $bot->reply($message, PHONE);
+
+    expect($bot->lastContext()->topic)->toBe('carta');
+})->with([
+    'the approach chart' => ['me podrías dar la carta de aproximación de Tandil?'],
+    'the aerodrome plot' => ['plano de aeródromo de Ezeiza'],
+    'the documents in general' => ['documentos AIP de Ezeiza'],
+]);
+
+/**
+ * "plano de aeródromo" carries a ficha word inside it and "hay notams" does not
+ * stop being a NOTAM request for mentioning a chart.
+ */
+it('does not let the chart words swallow another question', function (string $message, string $expected) {
+    fakeAnac();
+    fakeMetar();
+
+    $bot = bot();
+    $bot->reply($message, PHONE);
+
+    expect($bot->lastContext()->topic)->toBe($expected);
+})->with([
+    'notams win' => ['hay notams en el aeropuerto de Ezeiza?', 'notam'],
+    'the ficha still answers a bare name' => ['ezeiza', 'info'],
+    'the METAR is not a chart' => ['metar EZE', 'metar'],
+]);
+
+/**
+ * The chart words name the topic, and leaving them in the message would let
+ * them name an aerodrome too — the same trap "viento en pista osa" fell into.
+ */
+it('resolves the aerodrome with the chart words taken out', function () {
+    fakeAipDocuments();
+
+    $bot = bot();
+    $bot->reply('carta de aproximación de Santa Rosa', PHONE);
+
+    expect($bot->lastContext()->anacCode)->toBe('OSA');
+});
+
+it('sends the document behind a tapped list row', function () {
+    fakeAipDocuments();
+
+    $reply = bot()->reply('', PHONE, 'doc:SAZR:2');
+
+    expect($reply->documents)->toHaveCount(1)
+        ->and($reply->documents[0]->url)->toBe('https://ais.anac.gob.ar/descarga/aip-test-osa-vor')
+        ->and(buttonIds($reply->button))->toBe(['doc:SAZR:0', 'doc:SAZR:1', 'doc:SAZR:3']);
+});
+
+/**
+ * A tap can arrive days after the offer, and an AIRAC amendment in between can
+ * leave the listing shorter than it was. Sending whatever now sits at that
+ * position would be a different chart under the caption that was tapped.
+ */
+it('says so when a tapped row is no longer in the listing', function () {
+    fakeAipDocuments();
+
+    $reply = bot()->reply('', PHONE, 'doc:SAZR:11');
+
+    expect($reply->documents)->toBe([])
+        ->and($reply->messages[0])->toContain('ya no está en el listado');
+});

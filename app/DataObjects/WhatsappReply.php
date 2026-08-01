@@ -3,24 +3,31 @@
 namespace App\DataObjects;
 
 /**
- * Everything the bot wants to say in answer to one message: the bodies to send,
- * in order, optionally a button to offer underneath, and optionally a menu
- * offering the other topics for the same aerodrome as a message of its own.
+ * Everything the bot wants to say in answer to one message: the files to
+ * attach, the bodies to send, in order, optionally a button to offer
+ * underneath, and optionally a menu offering the other topics for the same
+ * aerodrome as a message of its own.
  *
  * The button belongs to the reply rather than to each body because it is only
  * ever attached to the last one. A long answer arrives as a numbered run of
  * messages, and repeating the same button on every part of it would read as
  * several offers rather than one.
+ *
+ * The documents lead: an attachment carries its own caption, so it says what it
+ * is on its own, and whatever text follows is about the whole set of them
+ * rather than an introduction to files that have not arrived yet.
  */
 final readonly class WhatsappReply
 {
     /**
      * @param  array<int, string>  $messages
+     * @param  array<int, ReplyDocument>  $documents
      */
     public function __construct(
         public array $messages,
         public ?ReplyButton $button = null,
         public ?ReplyMenu $menu = null,
+        public array $documents = [],
     ) {}
 
     public static function of(string ...$messages): self
@@ -36,9 +43,18 @@ final readonly class WhatsappReply
         return new self(array_values($messages), $button);
     }
 
+    /**
+     * @param  array<int, ReplyDocument>  $documents
+     * @param  array<int, string>  $messages  What to say after the attachments, if anything.
+     */
+    public static function ofDocuments(array $documents, array $messages = [], ?ReplyButton $button = null): self
+    {
+        return new self(array_values($messages), $button, null, array_values($documents));
+    }
+
     public function withMenu(?ReplyMenu $menu): self
     {
-        return new self($this->messages, $this->button, $menu);
+        return new self($this->messages, $this->button, $menu, $this->documents);
     }
 
     /**

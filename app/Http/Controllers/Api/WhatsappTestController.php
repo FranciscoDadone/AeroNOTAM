@@ -53,6 +53,12 @@ class WhatsappTestController extends Controller
             'boton' => $boton ?: null,
             'cantidad_mensajes' => count($respuesta->messages),
             'respuestas' => $respuesta->messages,
+            // The attachments that would go out ahead of the text, each with
+            // the caption that says what it is.
+            'documentos' => array_map(fn ($documento) => [
+                'url' => $documento->url,
+                'texto' => $documento->caption,
+            ], $respuesta->documents),
             // Empty when the reply carries no offer; otherwise the ids a tap
             // would send back, so the JSON shows what each button would do.
             'botones_ofrecidos' => $respuesta->button === null

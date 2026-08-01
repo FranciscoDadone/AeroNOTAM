@@ -303,6 +303,10 @@ ahora hay con qué contestarlas.
 La palabra `"notam"` gana sobre todo lo demás: quien la escribió sabe lo que
 pidió, y _"hay notams para mañana en EZE?"_ no se contesta con un pronóstico.
 
+Y si lo que pide es un documento (`"carta de aproximación de Tandil"`, `"plano
+de aeródromo de Ezeiza"`, `"documentos AIP de SAZR"`) manda el PDF — ver
+[Las cartas de la AIP](#las-cartas-de-la-aip).
+
 ### La ficha: qué *es* el aeródromo
 
 Todo lo demás que contesta el bot es sobre esta tarde. La ficha es lo otro: a
@@ -497,6 +501,45 @@ fichas de MADHEL (`notams:import-airport-details`) y de las fichas de la AIP
 para los aeródromos delegados (`notams:import-aip-details`), y la ronda de
 alertas (`metar:watch`).
 
+### Las cartas de la AIP
+
+`"me podrías dar la carta de aproximación de Tandil?"` devuelve **los PDF**, no
+un link. Todos los que haya: un aeródromo publica una carta por procedimiento y
+por pista, y elegir una sería elegir el procedimiento por el piloto.
+
+La AIP publica su tabla de documentos en una sola página (`GET /aip/ad`, que
+sólo responde al pedido si parece el XHR de su propio SPA). Ahí está todo lo de
+cada aeródromo — la ficha AD-2.0 que ya se importaba, el plano de aeródromo, las
+cartas de aproximación — indexado por código OACI y nada más, así que un
+aeródromo sin OACI nunca va a aparecer y el bot lo dice en vez de fallar.
+
+Qué documento es cada uno se decide **por el título y no por el número de
+sección**: nada publicado dice bajo qué AD-2.x archiva ANAC sus cartas de
+aproximación, y el título dice "Carta de aproximación por instrumentos" en
+palabras que además son las que el lector ve. `AipDocumentClassifier` lee eso, y
+lee también el mensaje para saber cuál de los dos se pidió — sin nombrar
+ninguno (`"documentos AIP de Tandil"`) no manda nada y ofrece la lista entera,
+porque adivinar entre doce cartas es lo único peor que preguntar.
+
+El PDF viaja por URL: WhatsApp descarga la de la AIP y la reenvía, así que no
+hay copia local que pueda quedar vieja contra la enmienda que la reemplazó. Ese
+link tampoco es estable — lleva un hash que cambia con cada ciclo AIRAC — y de
+ahí sale todo lo demás: el botón de cada documento lleva su **posición** en el
+listado (`doc:SAZR:2`) y no su URL, y al tocarlo se relee el listado; el resumen
+se cachea contra el aeródromo, la sección y el título, nunca contra la URL.
+
+Arriba de cada PDF va **un resumen escrito por IA** de lo que le importa a un
+piloto: tipo de procedimiento, pista, mínimas, frustrada, frecuencias. Mismo
+patrón que el decodificador de NOTAM (`AipDocumentSummarizerAgent` +
+`AipDocumentSummarizerService`) y por la misma razón: una carta de aproximación
+no es un formulario estandarizado como la ficha AD-2.0, cada procedimiento se
+dibuja distinto, y un parser por regex estaría adivinando.
+
+Se degrada en silencio, en los tres puntos donde puede fallar: sin
+`OPENROUTER_API_KEY`, con un PDF que no se puede abrir, o con una carta
+escaneada sin texto embebido, el documento sale igual con su título solo. La
+carta es lo que se pidió; el resumen es lo que la acompaña.
+
 ### El registro de aeródromos
 
 El selector de NOTAM de ANAC sólo lista los aeródromos que tienen un NOTAM
@@ -605,6 +648,19 @@ porque la ficha es la respuesta por defecto: ofrece NOTAM, METAR y TAF, que es
 lo que alguien quiere saber justo después de enterarse de que el lugar existe.
 El menú es un mensaje aparte y no más botones sobre la respuesta, porque un
 mensaje dibuja un solo juego.
+
+**Cuando el conjunto no entra en tres, WhatsApp tiene otra forma**: un botón
+que abre una hoja de hasta **diez filas**, cada una con un título de 24
+caracteres y una descripción de 72. Es lo que usan los documentos de la AIP, que
+son rutinariamente más de tres. Para todo lo demás es la misma cosa —los mismos
+identificadores, la misma gramática, el mismo toque volviendo— sólo dibujada
+distinto: `ReplyButton` lo marca con `listLabel` y `DeliversWhatsappReply`
+elige el envío. La única diferencia real está del lado de Meta, que manda la
+fila tocada como `list_reply` en vez de `button_reply`; el webhook lee las dos.
+
+Cada fila lleva el título de la AIP recortado a la parte que distingue un
+documento del de al lado — la AIP los escribe de lo general a lo específico,
+así que es el último tramo — y el título entero abajo, donde entra.
 
 Con SQLite, activá WAL para que el worker y el servidor web no se bloqueen
 mutuamente:

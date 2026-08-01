@@ -24,6 +24,30 @@ interface WhatsappSender
     public function sendWithButtons(string $to, string $body, array $buttons): void;
 
     /**
+     * Deliver a message whose actions are a list rather than buttons.
+     *
+     * The way past the three-button ceiling: WhatsApp shows a single labelled
+     * button that opens a sheet of up to ten rows, each one an id of ours, a
+     * title of at most twenty-four characters and an optional description of at
+     * most seventy-two. A tapped row comes back the same way a tapped button
+     * does.
+     *
+     * @param  string  $label  The caption on the button that opens the sheet, twenty characters at most.
+     * @param  array<int, array{id: string, title: string, description?: string}>  $rows
+     */
+    public function sendWithList(string $to, string $body, string $label, array $rows): void;
+
+    /**
+     * Deliver a document — a PDF, in practice — by public URL.
+     *
+     * WhatsApp fetches $url itself, so it has to be reachable without our
+     * credentials; nothing is uploaded from here. The caption is what the
+     * reader sees above the attachment, capped at 1024 characters, and the
+     * filename is what the file is called once saved.
+     */
+    public function sendDocument(string $to, string $url, string $caption, string $filename): void;
+
+    /**
      * Show the "typing…" dots to whoever sent us $inboundMessageId, so the
      * chat doesn't look dead while we build the reply.
      *

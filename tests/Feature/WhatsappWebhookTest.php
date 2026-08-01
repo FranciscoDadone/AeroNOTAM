@@ -128,6 +128,20 @@ it('passes a tapped button payload through to the job', function () {
     });
 });
 
+/**
+ * A row of a list sheet is the same tap under a different key — same ids, same
+ * grammar — and reading only button_reply would leave every AIP document
+ * unreachable by touch.
+ */
+it('passes a tapped list row through to the job', function () {
+    postSigned(metaPayload(text: 'VOR RWY 19', buttonId: 'doc:SAZR:2', tap: 'list_reply'))->assertOk();
+
+    Queue::assertPushed(function (ProcessWhatsappMessage $job) {
+        return (new ReflectionProperty($job, 'buttonPayload'))->getValue($job) === 'doc:SAZR:2'
+            && (new ReflectionProperty($job, 'body'))->getValue($job) === 'VOR RWY 19';
+    });
+});
+
 it('leaves the button payload null for a typed message', function () {
     postSigned(metaPayload())->assertOk();
 

@@ -118,10 +118,11 @@ function fakeMadhelDetails(array $codes = ['OSA', 'CIF'], array $extra = []): vo
 /**
  * A slice of the AIP's "Ad" document listing (GET /aip/ad), matching the
  * shape captured from ais.anac.gob.ar: two AD-2.0 rows — OSA (Santa Rosa) and
- * EZE (Ezeiza) — plus one non-AD-2.0 row that AipService::parseListing() must
- * ignore. The real listing carries 51 AD-2.0 documents; this one carries two
- * on purpose, so fakeAipDocuments() lowers the minimum-document floor to
- * match rather than padding the fixture out to a realistic size.
+ * EZE (Ezeiza) — three of Santa Rosa's charts, and one AD-1 row with no
+ * aerodrome code that AipService::parseListing() must ignore. The real listing
+ * carries 51 AD-2.0 documents; this one carries two on purpose, so
+ * fakeAipDocuments() lowers the minimum-document floor to match rather than
+ * padding the fixture out to a realistic size.
  */
 function aipAdListingFixture(): string
 {
@@ -156,6 +157,11 @@ function aipPdfFixture(): string
  * fields back out of the bytes it downloaded for a *different* one; a test
  * that cares which PDF a code got should pass it in $extra.
  *
+ * The chart downloads are stubbed with a catch-all rather than named, because
+ * a test about the charts cares that one arrived, not which bytes it carried:
+ * what the bot does with those bytes is ask a model about them, and the model
+ * is silenced in tests.
+ *
  * @param  array<int, string>  $codes
  * @param  array<string, mixed>  $extra  Code (or 'listing') => raw Http::response() to serve instead.
  */
@@ -172,6 +178,8 @@ function fakeAipDocuments(array $codes = ['OSA'], array $extra = []): void
     foreach ($codes as $code) {
         $fakes["*/descarga/{$hrefs[$code]}"] = $extra[$code] ?? Http::response(aipPdfFixture());
     }
+
+    $fakes['*/descarga/*'] = Http::response(aipPdfFixture());
 
     Http::fake($fakes);
 }
@@ -416,17 +424,21 @@ function buttonIds(?ReplyButton $button): array
  * entry → changes → value, with the number in bare digits and the body under
  * either "text" or the tapped button.
  *
+ * $tap says which of the two shapes a tap arrives in — a quick-reply button or
+ * a row of a list sheet. They differ only in the key the id sits under, which
+ * is exactly why the webhook has to be shown reading both.
+ *
  * @return array<string, mixed>
  */
-function metaPayload(string $from = '5491111111111', ?string $text = 'ezeiza', ?string $buttonId = null, string $messageId = 'wamid.TEST', ?string $profileName = null): array
+function metaPayload(string $from = '5491111111111', ?string $text = 'ezeiza', ?string $buttonId = null, string $messageId = 'wamid.TEST', ?string $profileName = null, string $tap = 'button_reply'): array
 {
     $message = ['from' => $from, 'id' => $messageId, 'timestamp' => '1753920000'];
 
     if ($buttonId !== null) {
         $message['type'] = 'interactive';
         $message['interactive'] = [
-            'type' => 'button_reply',
-            'button_reply' => ['id' => $buttonId, 'title' => $text ?? $buttonId],
+            'type' => $tap,
+            $tap => ['id' => $buttonId, 'title' => $text ?? $buttonId],
         ];
     } else {
         $message['type'] = 'text';
@@ -481,6 +493,16 @@ function rejectingSender(int $errorCode): WhatsappSender
         }
 
         public function sendWithButtons(string $to, string $body, array $buttons): void
+        {
+            $this->reject();
+        }
+
+        public function sendWithList(string $to, string $body, string $label, array $rows): void
+        {
+            $this->reject();
+        }
+
+        public function sendDocument(string $to, string $url, string $caption, string $filename): void
         {
             $this->reject();
         }

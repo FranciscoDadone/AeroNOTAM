@@ -46,6 +46,40 @@ class MetaWhatsappSender implements WhatsappSender
     }
 
     /**
+     * One section, because there is only ever one thing being listed. Its title
+     * is required as soon as there is more than one section and harmless when
+     * there is not, so it reuses the button's own label rather than inventing a
+     * second caption that would have to agree with it.
+     */
+    public function sendWithList(string $to, string $body, string $label, array $rows): void
+    {
+        $this->post([
+            'to' => $this->recipient($to),
+            'type' => 'interactive',
+            'interactive' => [
+                'type' => 'list',
+                'body' => ['text' => $body],
+                'action' => [
+                    'button' => $label,
+                    'sections' => [[
+                        'title' => $label,
+                        'rows' => array_map($this->row(...), array_values($rows)),
+                    ]],
+                ],
+            ],
+        ])->throw();
+    }
+
+    public function sendDocument(string $to, string $url, string $caption, string $filename): void
+    {
+        $this->post([
+            'to' => $this->recipient($to),
+            'type' => 'document',
+            'document' => ['link' => $url, 'caption' => $caption, 'filename' => $filename],
+        ])->throw();
+    }
+
+    /**
      * The same endpoint as a message: marking the inbound message read is what
      * puts the dots up, and the two are one request.
      *
@@ -70,6 +104,21 @@ class MetaWhatsappSender implements WhatsappSender
     }
 
     /**
+     * @param  array{id: string, title: string, description?: string}  $row
+     * @return array<string, string>
+     */
+    protected function row(array $row): array
+    {
+        $description = trim($row['description'] ?? '');
+
+        return array_filter([
+            'id' => $row['id'],
+            'title' => $row['title'],
+            'description' => $description,
+        ]);
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      */
     protected function post(array $payload): Response
@@ -84,10 +133,25 @@ class MetaWhatsappSender implements WhatsappSender
     /**
      * Meta wants bare digits; everything upstream of here — the message log,
      * the subscriptions — stores the address as WhatsApp writes it.
+     *
+     * The trailing branch exists for test numbers only. Their allow-list is
+     * matched against the string as sent, before Meta normalises it, and an
+     * Argentine mobile written the way WhatsApp reports it -- 549 + area +
+     * line -- never matches an entry the panel stored, because the panel
+     * stores the same line as 54 + area + 15 + line. Dropping the 9 reaches
+     * the same wa_id: Meta resolves 542954465433 and 5492954465433 to one
+     * another. Off unless WHATSAPP_STRIP_AR_MOBILE_NINE says otherwise, since
+     * a live number has no allow-list and needs no such surgery.
      */
     protected function recipient(string $to): string
     {
-        return ltrim(Str::after($to, 'whatsapp:'), '+');
+        $number = ltrim(Str::after($to, 'whatsapp:'), '+');
+
+        if (config('services.whatsapp.strip_ar_mobile_nine') && str_starts_with($number, '549')) {
+            return '54'.substr($number, 3);
+        }
+
+        return $number;
     }
 
     /**

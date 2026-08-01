@@ -4,11 +4,13 @@ namespace App\Services;
 
 use App\Ai\Agents\AirportMatcherAgent;
 use App\DataObjects\AerometObservation;
+use App\DataObjects\AipDocument;
 use App\DataObjects\Metar;
 use App\DataObjects\Notam;
 use App\DataObjects\PronareaForecast;
 use App\DataObjects\ReplyButton;
 use App\DataObjects\ReplyContext;
+use App\DataObjects\ReplyDocument;
 use App\DataObjects\ReplyMenu;
 use App\DataObjects\SunTimes;
 use App\DataObjects\Taf;
@@ -17,6 +19,7 @@ use App\Models\Airport;
 use App\Models\MetarSubscription;
 use App\Models\Runway;
 use App\Support\AerometStationResolver;
+use App\Support\AipDocumentClassifier;
 use App\Support\AirportResolver;
 use App\Support\Compass;
 use App\Support\MetarConditions;
@@ -147,6 +150,23 @@ class WhatsappBotService
     ];
 
     /**
+     * Words that ask for a document out of the AIP rather than for something
+     * we would write ourselves — an approach chart, the aerodrome plot, or just
+     * "what does the AIP publish for this place".
+     *
+     * Checked before the ficha words, which contain "aerodromo" and would
+     * swallow "plano de aeródromo" whole. Two things a substring match would
+     * get wrong are deliberately absent: "iac", which lives inside "aviación",
+     * and a bare "aip", which lives inside "Maipú". Both are still matched
+     * where it is safe to — AipDocumentClassifier reads titles and messages at
+     * a word boundary, so it keeps them.
+     */
+    protected const CARTA_KEYWORDS = [
+        'carta', 'aproximacion', 'plano de aerodromo', 'plano del aerodromo',
+        'documentos aip', 'documentos de la aip', 'documento aip',
+    ];
+
+    /**
      * Words that ask what an aerodrome *is* rather than what is happening at
      * it: where it is, how high, what its runways are made of, whether there
      * is fuel and who to call.
@@ -178,6 +198,7 @@ class WhatsappBotService
         'metar' => self::METAR_KEYWORDS,
         'taf' => self::TAF_KEYWORDS,
         'pronarea' => self::PRONAREA_KEYWORDS,
+        'carta' => self::CARTA_KEYWORDS,
         'info' => self::INFO_KEYWORDS,
     ];
 
@@ -260,6 +281,15 @@ class WhatsappBotService
     protected const BUTTON_RUNWAY_WIND = '/^pista:([A-Z]{3,4})$/';
 
     /**
+     * A tap on a row of the "other AIP documents" list. Four letters because
+     * the AIP indexes its documents by OACI code and nothing else, and a
+     * position rather than a URL because the download link embeds a hash that
+     * changes with every AIRAC amendment — the listing is read again and the
+     * row taken from it.
+     */
+    protected const BUTTON_DOC = '/^doc:([A-Z]{4}):(\d{1,2})$/';
+
+    /**
      * What the last call to reply() made of the message. Kept aside instead of
      * being returned with the reply because only the message log cares.
      */
@@ -281,6 +311,9 @@ class WhatsappBotService
         protected AerometEnricher $aerometEnricher,
         protected AerometStationResolver $aerometStations,
         protected RunwayResolver $runways,
+        protected AipService $aip,
+        protected AipDocumentClassifier $aipDocuments,
+        protected AipDocumentSummarizerService $aipSummarizer,
     ) {
         $this->context = new ReplyContext;
     }
@@ -353,6 +386,7 @@ class WhatsappBotService
             'metar' => $this->metarReply($indicator, $from),
             'pista' => $this->runwayWindReply($indicator, $from),
             'pronarea' => $this->pronareaReply($indicator),
+            'carta' => $this->cartaReply($indicator, $message),
             'info' => $this->infoReply($indicator, $from),
             default => $this->notamReply($indicator, $from),
         };
@@ -420,6 +454,13 @@ class WhatsappBotService
             return $this->runwayWindReply($this->context->anacCode = $this->airports->resolve($m[1]), $from);
         }
 
+        if (preg_match(self::BUTTON_DOC, $payload, $m) === 1) {
+            $this->context->topic = 'carta';
+            $this->context->anacCode = $this->airports->resolve($m[1]);
+
+            return $this->documentReply($m[1], (int) $m[2]);
+        }
+
         return null;
     }
 
@@ -452,6 +493,11 @@ class WhatsappBotService
      * as a plain request for the observation — which is the question they are
      * one step past.
      *
+     * The AIP documents sit just after "notam", ahead of the weather and of the
+     * ficha. Ahead of the ficha because "plano de aeródromo" carries a ficha
+     * word inside it, and after "notam" because nothing on that list overlaps
+     * with one — someone who typed "notam" is not asking for a chart.
+     *
      * The ficha goes last, and is also the default. Last because its words are
      * the ones that turn up inside every other kind of question — "hay notams
      * en el aeropuerto de Córdoba", "cómo está el clima en el aeródromo de
@@ -474,6 +520,7 @@ class WhatsappBotService
             $this->mentions($normalized, self::UNSUBSCRIBE_KEYWORDS) => 'unsubscribe',
             $this->mentions($normalized, self::SUBSCRIBE_KEYWORDS) => 'subscribe',
             str_contains($normalized, 'notam') => 'notam',
+            $this->mentions($normalized, self::CARTA_KEYWORDS) => 'carta',
             preg_match('/\btaf\b/', $normalized) === 1 => 'taf',
             $this->mentions($normalized, self::TAF_KEYWORDS) => 'taf',
             $this->mentions($normalized, self::METAR_KEYWORDS) => 'metar',
@@ -1249,6 +1296,157 @@ class WhatsappBotService
             $this->runwayWindOffer($indicator),
             $this->sunTimesFor($indicator),
         )->withMenu($this->menuFor('info', $indicator, $from));
+    }
+
+    /**
+     * The AIP's own documents for an aerodrome — the charts and plots the bot
+     * has always read from and never handed over.
+     *
+     * Two questions in one, and which was asked decides the shape of the
+     * answer. Named a kind of document ("la carta de aproximación de Tandil"),
+     * every document of that kind is sent, each with what it says written above
+     * it; asked for the documents in general, none is sent and the whole list
+     * is offered instead. Either way the rest is offered underneath, because an
+     * aerodrome's AIP documents are the sort of thing somebody looks through
+     * rather than looks up.
+     *
+     * Every chart of the kind asked for is sent, not the first: an aerodrome
+     * publishes an approach chart per procedure and per runway, and picking one
+     * would be picking a procedure on the pilot's behalf.
+     */
+    protected function cartaReply(string $indicator, string $message): WhatsappReply
+    {
+        $name = $this->airports->nameFor($indicator) ?? $indicator;
+        $icao = $this->airports->icaoFor($indicator);
+
+        // The AIP indexes its documents by OACI code and nothing else, so an
+        // aerodrome without one will never appear in that listing. Same shape
+        // of answer as the METAR's, and for the same reason: retrying will
+        // never help, so say why rather than failing generically.
+        if ($icao === null) {
+            return WhatsappReply::of(
+                "*{$name}* ({$indicator}) no tiene código OACI, y la AIP publica sus documentos por ese código, así que no tengo cartas para ese aeródromo."
+            );
+        }
+
+        try {
+            $documents = $this->aip->documentsFor($icao);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return WhatsappReply::of('Encontré el aeropuerto pero no pude leer el listado de documentos de la AIP en este momento. Probá de nuevo en unos minutos.');
+        }
+
+        if ($documents === []) {
+            return WhatsappReply::of(
+                "La AIP no publica documentos para *{$name}* ({$icao}). Suele pasar con los aeródromos que ANAC no delega a la AIP: en esos casos lo que hay está en la ficha, pedímela con _\"{$icao}\"_."
+            );
+        }
+
+        $kind = $this->aipDocuments->requestedKind($message);
+        $wanted = $kind === null
+            ? []
+            : array_filter($documents, fn (AipDocument $document) => $this->aipDocuments->isOfKind($document, $kind));
+
+        if ($kind !== null && $wanted === []) {
+            return WhatsappReply::ofMany(
+                ["La AIP no publica {$this->documentKindPhrase($kind)} de *{$name}* ({$icao}), pero sí estos otros documentos:"],
+                ReplyButton::documents($documents),
+            );
+        }
+
+        if ($wanted === []) {
+            return WhatsappReply::ofMany(
+                ["📄 Esto es lo que la AIP publica de *{$name}* ({$icao}):"],
+                ReplyButton::documents($documents),
+            );
+        }
+
+        $rest = array_diff_key($documents, $wanted);
+
+        return WhatsappReply::ofDocuments(
+            array_map($this->replyDocument(...), $wanted),
+            $rest === [] ? [] : ["Estos son los demás documentos que la AIP publica de *{$name}* ({$icao}):"],
+            $rest === [] ? null : ReplyButton::documents($rest),
+        );
+    }
+
+    /**
+     * One document, from a tapped row of the list above.
+     *
+     * The position is re-read against a freshly fetched listing rather than
+     * trusted: the tap can come days after the offer, and an AIRAC amendment in
+     * between reorders nothing but does replace every URL. A row that no longer
+     * exists says so instead of sending whatever now sits at that position,
+     * which would be a different chart under the caption the reader tapped.
+     */
+    protected function documentReply(string $icao, int $index): WhatsappReply
+    {
+        try {
+            $documents = $this->aip->documentsFor($icao);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return WhatsappReply::of('No pude leer el listado de documentos de la AIP en este momento. Probá de nuevo en unos minutos.');
+        }
+
+        $document = $documents[$index] ?? null;
+
+        if ($document === null) {
+            return WhatsappReply::of(
+                "Ese documento ya no está en el listado de la AIP para {$icao} — puede que haya cambiado con la última enmienda. Pedímelos de nuevo con _\"documentos AIP de {$icao}\"_."
+            );
+        }
+
+        $rest = array_diff_key($documents, [$index => $document]);
+
+        return WhatsappReply::ofDocuments(
+            [$this->replyDocument($document)],
+            $rest === [] ? [] : ["Los demás documentos de {$icao}:"],
+            $rest === [] ? null : ReplyButton::documents($rest),
+        );
+    }
+
+    /**
+     * An AIP document ready to send: the URL WhatsApp will fetch, and above it
+     * the title and — when there is one to be had — what the document says.
+     *
+     * The summary is best-effort in the strongest sense: it is fetched, parsed
+     * and written by three things that can each fail, and none of those
+     * failures may cost the reader the chart. Same shape as NotamEnricher's
+     * fallback to the offline dictionary — the answer degrades to the title
+     * alone, which is still an answer.
+     */
+    protected function replyDocument(AipDocument $document): ReplyDocument
+    {
+        $summary = null;
+
+        try {
+            $summary = $this->aipSummarizer->summarize($document, $this->aip->download($document->url));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        $caption = "📄 *{$document->title}*";
+
+        if ($summary !== null) {
+            $caption .= "\n\n{$summary}";
+        }
+
+        return new ReplyDocument(
+            $document->url,
+            // WhatsApp caps a caption at 1024, and a summary the model ran long
+            // on must not cost the document its title.
+            Str::limit($caption, 1020, '…'),
+            Str::slug("{$document->icaoCode}-{$document->code}-{$document->title}").'.pdf',
+        );
+    }
+
+    protected function documentKindPhrase(string $kind): string
+    {
+        return $kind === AipDocumentClassifier::AERODROME
+            ? 'el plano de aeródromo'
+            : 'cartas de aproximación';
     }
 
     /**
@@ -2589,6 +2787,8 @@ class WhatsappBotService
             .'Para el pronóstico de área de toda la FIR, pedime el PRONAREA: _"pronarea EZE"_.'
             ."\n\n"
             .'El AEROMET del SMN cubre más estaciones que el METAR, incluso ciudades sin aeródromo: _"aeromet junin"_.'
+            ."\n\n"
+            .'También te paso las cartas que publica la AIP: _"carta de aproximación de Tandil"_ o _"documentos AIP de Ezeiza"_.'
             ."\n\n"
             .'Con el METAR en la mano puedo calcular el componente de viento en cada cabecera: _"viento cruzado en Ezeiza"_.'
             ."\n\n"

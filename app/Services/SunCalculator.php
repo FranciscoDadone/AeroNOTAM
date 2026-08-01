@@ -55,14 +55,14 @@ class SunCalculator
         $symbols = [];
 
         foreach (self::KEYS as $moment => $key) {
-            $value = $info[$key] ?? false;
+            $value = $info[$key];
 
             if (! is_int($value)) {
                 // Not a time but a whole polar day or night. Reported under
                 // the SHN's own symbols so the reply renders both sources
                 // through the same three sentences.
                 $moments[$moment] = null;
-                $symbols[$moment] = $this->symbolFor($moment, (bool) $value);
+                $symbols[$moment] = $this->symbolFor($moment, $value);
 
                 continue;
             }

@@ -12,9 +12,9 @@ use Throwable;
 
 /**
  * Fills in what the AIP publishes for the aerodromes MADHEL delegates to it —
- * fuel, telephone, hours and, new to the ficha, the tower/approach frequency —
- * rather than leaving the ficha to say "sin dato publicado en MADHEL" about a
- * fact the AIP has had all along.
+ * fuel, telephone, hours and, new to the ficha, the tower/approach frequency
+ * and the radio navigation aids — rather than leaving the ficha to say "sin
+ * dato publicado en MADHEL" about a fact the AIP has had all along.
  *
  * Companion to notams:import-airport-details, not a replacement: that one
  * still owns elevation, location and the rest, which MADHEL publishes for
@@ -27,7 +27,7 @@ class ImportAipDetails extends Command
     protected $signature = 'notams:import-aip-details
                             {--only= : Sólo estos códigos ANAC, separados por coma}';
 
-    protected $description = "Import each AIP-delegated aerodrome's fuel, telephone, horario y frecuencia ATS desde la AIP.";
+    protected $description = "Import each AIP-delegated aerodrome's fuel, telephone, horario, frecuencia ATS y radioayudas desde la AIP.";
 
     public function handle(AipService $aip, Parser $parser): int
     {
@@ -75,6 +75,9 @@ class ImportAipDetails extends Command
                     : json_encode($details['telephone'], JSON_UNESCAPED_UNICODE),
                 'aip_service_schedule' => $details['service_schedule'],
                 'aip_ats_frequency' => $details['ats_frequency'],
+                'aip_navaids' => $details['navaids'] === null
+                    ? null
+                    : json_encode($details['navaids'], JSON_UNESCAPED_UNICODE),
                 'aip_details_updated_at' => now(),
                 'updated_at' => now(),
             ];
@@ -82,7 +85,7 @@ class ImportAipDetails extends Command
 
         Airport::upsert($rows, ['anac_code'], [
             'aip_fuel', 'aip_telephone', 'aip_service_schedule', 'aip_ats_frequency',
-            'aip_details_updated_at', 'updated_at',
+            'aip_navaids', 'aip_details_updated_at', 'updated_at',
         ]);
 
         $this->info(sprintf(
@@ -120,7 +123,7 @@ class ImportAipDetails extends Command
      * stays a week stale for that one aerodrome rather than the whole import
      * failing over a single bad document.
      *
-     * @return array{fuel: string|null, telephone: array<int, string>|null, service_schedule: string|null, ats_frequency: string|null}|null
+     * @return array{fuel: string|null, telephone: array<int, string>|null, service_schedule: string|null, ats_frequency: string|null, navaids: array<int, array{type: string, id: string|null, frequency: string, unit: string, hours: string|null}>|null}|null
      */
     protected function fetchDetails(AipService $aip, Parser $parser, string $url): ?array
     {

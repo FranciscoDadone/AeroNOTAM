@@ -3,10 +3,11 @@
 namespace App\Support;
 
 /**
- * The four fields this reads out of an AIP "Datos del AD" PDF are exactly the
+ * The five fields this reads out of an AIP "Datos del AD" PDF start with the
  * ones MADHEL leaves blank for the aerodromes it delegates to the AIP: fuel,
- * telephone, operating hours and — new, not something MADHEL ever published
- * for anyone — the tower/approach frequency.
+ * telephone and operating hours. The last two are new, and MADHEL never
+ * published either for anyone: the tower/approach frequency, and the radio
+ * navigation aids.
  *
  * The AD-2 form is an ICAO template: the row label text ("Tipos de
  * combustible, lubricantes / Fuel and oil types") is the same string on every
@@ -21,7 +22,7 @@ namespace App\Support;
 final class AipAdDetails
 {
     /**
-     * @return array{fuel: string|null, telephone: array<int, string>|null, service_schedule: string|null, ats_frequency: string|null}
+     * @return array{fuel: string|null, telephone: array<int, string>|null, service_schedule: string|null, ats_frequency: string|null, navaids: array<int, array{type: string, id: string|null, frequency: string, unit: string, hours: string|null}>|null}
      */
     public static function parse(string $text): array
     {
@@ -35,6 +36,7 @@ final class AipAdDetails
             'telephone' => self::telephone($flat),
             'service_schedule' => self::serviceSchedule($flat),
             'ats_frequency' => self::atsFrequency($flat),
+            'navaids' => self::navaids($flat),
         ];
     }
 
@@ -218,6 +220,109 @@ final class AipAdDetails
         $rest = preg_split('/\s+(?:CPPL|CAUX|EMERG|\d{3}\.\d{2}\s*MHz)/u', $rest, 2)[0];
 
         return trim($rest);
+    }
+
+    /**
+     * Everything AD 2.19 lists in its "Tipo de ayuda" column, longest first so
+     * that DVOR is never read as a stray D followed by a VOR.
+     */
+    private const NAVAID_TYPES = ['TACAN', 'GBAS', 'DVOR', 'NDB', 'DME', 'ILS', 'LOC', 'VOR', 'VDF', 'GP'];
+
+    /**
+     * AD 2.19, "Radioayudas para la navegación y el aterrizaje" — the VOR and
+     * its DME, the NDB, the ILS localiser, with the identifier and frequency a
+     * pilot sets the box to.
+     *
+     * The seven-column table has no column rules left once the PDF is
+     * flattened, so the row boundaries have to be inferred from the text
+     * itself. The unit after a three-digit number is the only anchor that
+     * holds: the Observaciones column is free prose written in the same
+     * alphabet as the aid types, and every looser pattern reads "DME CH 72X
+     * (350 km)" as an aid of its own.
+     *
+     * The glide path is the one row of the table left out — see below.
+     *
+     * Columns 5, 6 and 7 (antenna position, DME elevation, remarks) are read
+     * past rather than captured. They are what a chart is for; this is a
+     * WhatsApp message that has to fit alongside runways, services and the
+     * sun.
+     *
+     * @return array<int, array{type: string, id: string|null, frequency: string, unit: string, hours: string|null}>|null
+     */
+    private static function navaids(string $flat): ?array
+    {
+        // Same shape as atsFrequency()'s: the section title, the column
+        // headings skipped by anchoring on the row of column numbers, then
+        // the table up to the next section.
+        //
+        // That next section is whichever comes after 2.19 rather than 2.20
+        // itself — Viedma's ficha goes straight from 2.19 to 2.23 — but only
+        // from 2.20 up, never a bare "AD 2.x", because the running footer
+        // prints the current page's own section number ("SAVV AD 2.9") in the
+        // middle of the table it is a footer of.
+        if (preg_match(
+            '/RADIOAYUDAS PARA LA NAVEGACI[ÓO]N.*?\b1 2 3 4 5 6 7\s+(.*?)\s+\bAD 2\.[23]\d\b/u',
+            $flat,
+            $m,
+        ) !== 1) {
+            return null;
+        }
+
+        $type = '(?:'.implode('|', self::NAVAID_TYPES).')';
+
+        // The separator accepts both a slash and a space: the same aid is
+        // "VOR/DME" on Santa Rosa's and Bariloche's PDF and "VOR DME" on
+        // Ezeiza's. Identifier and hours are optional because the glide path
+        // rows carry neither. The unit's "z" is optional because Esquel's
+        // ficha drops it — "VOR/DME ESQ 117.8 MH H24" — on both its rows.
+        if (preg_match_all(
+            '/\b(?<type>'.$type.'(?:\s?\/\s?'.$type.'|\s'.$type.')*)'
+            .'(?:\s+(?<id>[A-Z]{1,4}))?'
+            .'\s+(?<frequency>\d{3}(?:\.\d{1,3})?)\s*(?<unit>[Mk]Hz?)'
+            .'(?:\s+(?<hours>H24|HJ|HN|HO|HS|HX))?/iu',
+            $m[1],
+            $rows,
+            PREG_SET_ORDER,
+        ) === false) {
+            return null;
+        }
+
+        $navaids = [];
+
+        foreach ($rows as $row) {
+            $components = preg_split('/[\s\/]+/u', mb_strtoupper($row['type'])) ?: [];
+
+            // The glide path is the other half of the ILS whose localiser is
+            // already a row above, on a frequency no receiver is ever tuned
+            // to by hand — it comes paired with the localiser. Listing it
+            // would spend a line of a message that is already close to
+            // WhatsApp's interactive cap on something nobody reads.
+            if (in_array('GP', $components, true)) {
+                continue;
+            }
+
+            // An unmatched group in the middle of the pattern comes back as an
+            // empty string, unlike the trailing one below, which is absent.
+            $id = $row['id'] === '' ? null : mb_strtoupper($row['id']);
+
+            // Bariloche's VOR row repeats "VOR BAR 117.4 MHZ OPR RESTRICTED
+            // BTN RDL 020-060…" inside its own Observaciones column, which
+            // reads exactly like a second row of the table. Same aid on the
+            // same frequency is listed once.
+            $key = ($id ?? mb_strtoupper($row['type'])).' '.$row['frequency'];
+
+            $navaids[$key] ??= [
+                // "VOR DME" and "VOR/DME" are the same aid written two ways,
+                // and the ficha should not print the difference.
+                'type' => implode('/', $components),
+                'id' => $id,
+                'frequency' => $row['frequency'],
+                'unit' => strncasecmp($row['unit'], 'k', 1) === 0 ? 'kHz' : 'MHz',
+                'hours' => ($row['hours'] ?? '') === '' ? null : mb_strtoupper($row['hours']),
+            ];
+        }
+
+        return $navaids === [] ? null : array_values($navaids);
     }
 
     /**

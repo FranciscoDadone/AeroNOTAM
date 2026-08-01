@@ -37,6 +37,7 @@ use Illuminate\Support\Carbon;
  * @property array<int, string>|null $aip_telephone
  * @property string|null $aip_service_schedule
  * @property string|null $aip_ats_frequency
+ * @property array<int, array{type: string, id: string|null, frequency: string, unit: string, hours: string|null}>|null $aip_navaids
  * @property Carbon|null $aip_details_updated_at
  */
 class Airport extends Model
@@ -72,6 +73,7 @@ class Airport extends Model
         'aip_telephone',
         'aip_service_schedule',
         'aip_ats_frequency',
+        'aip_navaids',
         'aip_details_updated_at',
     ];
 
@@ -92,6 +94,7 @@ class Airport extends Model
             'telephone' => 'array',
             'details_updated_at' => 'datetime',
             'aip_telephone' => 'array',
+            'aip_navaids' => 'array',
             'aip_details_updated_at' => 'datetime',
         ];
     }

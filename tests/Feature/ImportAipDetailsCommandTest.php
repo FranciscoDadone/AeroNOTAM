@@ -35,6 +35,10 @@ it('imports the AIP ficha of an aerodrome delegated to it', function () {
         ])
         ->and($airport->aip_service_schedule)->toBe('LUN a VIE 12:00 a 23:00 UTC. SÁB 17:00 a 23:00 UTC. DOM 13:00 a 21:00 UTC')
         ->and($airport->aip_ats_frequency)->toBe('TWR/APP SANTA ROSA TORRE — 118.30 MHz (CPPL) · 119.70 MHz (CAUX)')
+        ->and($airport->aip_navaids)->toBe([
+            ['type' => 'VOR/DME', 'id' => 'OSA', 'frequency' => '112.5', 'unit' => 'MHz', 'hours' => 'H24'],
+            ['type' => 'ILS/LOC', 'id' => 'SR', 'frequency' => '110.3', 'unit' => 'MHz', 'hours' => 'H24'],
+        ])
         ->and($airport->aip_details_updated_at)->not->toBeNull();
 });
 

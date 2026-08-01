@@ -311,7 +311,8 @@ de aeródromo de Ezeiza"`, `"documentos AIP de SAZR"`) manda el PDF — ver
 
 Todo lo demás que contesta el bot es sobre esta tarde. La ficha es lo otro: a
 qué distancia y rumbo de la ciudad está el aeródromo, qué pistas tiene y de qué
-largo, ancho y superficie, a qué elevación, si hay combustible y a quién llamar.
+largo, ancho y superficie, a qué elevación, si hay combustible, a quién llamar
+y en qué frecuencias sintonizar la torre y las radioayudas.
 
 ```
 🛬 SANTA ROSA
@@ -330,7 +331,11 @@ Pistas
 🕐 Horario: LUN a VIE 12:00 a 23:00 UTC. SÁB 17:00 a 23:00 UTC. DOM 13:00 a 21:00 UTC
 📻 Frecuencia: TWR/APP SANTA ROSA TORRE — 118.30 MHz (CPPL) · 119.70 MHz (CAUX)
 
-Combustible, teléfono, horario y frecuencia según la AIP.
+Radioayudas
+📡 VOR/DME OSA — 112.5 MHz (H24)
+📡 ILS/LOC SR — 110.3 MHz (H24)
+
+Combustible, teléfono, horario, frecuencia y radioayudas según la AIP.
 ```
 
 Se pide sola (`"osa"`, `"santa rosa"`, `"sazr"`) o por su nombre (`"info osa"`,
@@ -352,11 +357,11 @@ palabras, en vez de atribuirle a MADHEL (o a la AIP) un silencio que es
 nuestro.
 
 Para los aeródromos delegados, combustible, teléfono y horario —y la
-frecuencia de torre/aproximación, que MADHEL nunca publicó para nadie— salen
-de ahí en cambio: la AIP publica una ficha AD-2 en PDF por aeródromo, y
-`notams:import-aip-details` es lo que la lee. Hasta que ese import corre por
-primera vez para un aeródromo delegado, la ficha lo dice así en vez de
-mostrar "sin dato publicado":
+frecuencia de torre/aproximación y las radioayudas, que MADHEL nunca publicó
+para nadie— salen de ahí en cambio: la AIP publica una ficha AD-2 en PDF por
+aeródromo, y `notams:import-aip-details` es lo que la lee. Hasta que ese import
+corre por primera vez para un aeródromo delegado, la ficha lo dice así en vez
+de mostrar "sin dato publicado":
 
 ```
 ⛽ Combustible: sin dato publicado en la AIP
@@ -364,6 +369,14 @@ mostrar "sin dato publicado":
 
 Todavía no importé la ficha de la AIP de este aeródromo (notams:import-aip-details).
 ```
+
+Las radioayudas salen de la AD 2.19 de esa misma ficha, y la lista es la de las
+ayudas que un piloto efectivamente sintoniza: VOR, DVOR, NDB, DME, TACAN e
+ILS/LOC. La senda de planeo queda afuera — viene emparejada con el localizador
+de arriba y nadie la sintoniza aparte. El aeródromo cuya ficha AIP nunca se
+leyó, o que directamente no está delegado, no muestra el bloque en vez de decir
+"sin radioayudas": la AD 2.19 es una tabla de las ayudas que hay, no una
+declaración de que un lugar no tiene ninguna.
 
 Las dimensiones y la superficie vienen de las dos mismas fuentes que los rumbos
 y con el mismo reparto — ver

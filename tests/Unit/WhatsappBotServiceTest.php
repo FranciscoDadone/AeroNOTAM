@@ -2232,9 +2232,55 @@ it('reports a field the AIP itself does not publish, once its ficha has been imp
         ->toContain('📻 Frecuencia: 118.30 MHz (CPPL) · 119.70 MHz (CAUX)')
         ->not->toContain('sin dato publicado en MADHEL')
         ->not->toContain('no tiene')
+        // An aerodrome whose AD 2.19 lists no aid gets no Radioayudas block at
+        // all: the table is about the aids that exist, and "sin radioayudas"
+        // would be a claim it never made.
+        ->not->toContain('Radioayudas')
         // Already imported, so the ficha no longer sends the reader off-app.
         ->not->toContain('MADHEL remite a la AIP')
-        ->toContain('Combustible, teléfono, horario y frecuencia según la AIP');
+        ->toContain('Combustible, teléfono, horario, frecuencia y radioayudas según la AIP');
+});
+
+/**
+ * The aids a pilot tunes on the way in, off AD 2.19 of the aerodrome's own AIP
+ * ficha — the one radio fact the bot has never carried, and the reason
+ * somebody who already knows where Santa Rosa is still asks for it.
+ */
+it('lists the radio navigation aids of an aerodrome the AIP publishes them for', function () {
+    seedSantaRosaFicha();
+
+    Airport::where('anac_code', 'OSA')->update([
+        'aip_navaids' => [
+            ['type' => 'VOR/DME', 'id' => 'OSA', 'frequency' => '112.5', 'unit' => 'MHz', 'hours' => 'H24'],
+            ['type' => 'ILS/LOC', 'id' => 'SR', 'frequency' => '110.3', 'unit' => 'MHz', 'hours' => null],
+        ],
+        'aip_details_updated_at' => now(),
+    ]);
+
+    expect(bot()->reply('osa')->messages[0])
+        ->toContain('*Radioayudas*')
+        ->toContain('📡 VOR/DME OSA — 112.5 MHz (H24)')
+        // No hours column on that row of the PDF, so the ficha says nothing
+        // about when it runs rather than assuming H24.
+        ->toContain('📡 ILS/LOC SR — 110.3 MHz')
+        ->not->toContain('110.3 MHz (');
+});
+
+/**
+ * Only the ~40 aerodromes MADHEL delegates to the AIP are ever read for this:
+ * MADHEL itself has never published a radio navigation aid for anybody. A
+ * ficha built off MADHEL alone stays silent rather than claiming the place
+ * has none.
+ */
+it('says nothing about radioayudas for an aerodrome no AIP ficha was read for', function () {
+    Airport::where('anac_code', 'CIF')->update([
+        'city_reference' => 'Arrecifes',
+        'elevation_m' => 43,
+        'is_aip_delegated' => false,
+        'details_updated_at' => now(),
+    ]);
+
+    expect(bot()->reply('cif')->messages[0])->not->toContain('Radioayudas');
 });
 
 it('shows the fuel and telephone of an aerodrome MADHEL does publish them for', function () {

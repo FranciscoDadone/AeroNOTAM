@@ -1532,6 +1532,11 @@ class WhatsappBotService
         $lines[] = '';
         $lines = array_merge($lines, $this->airportServiceLines($airport));
 
+        if (($navaids = $this->navaidLines($airport)) !== []) {
+            $lines[] = '';
+            $lines = array_merge($lines, $navaids);
+        }
+
         if ($sun !== null) {
             $lines[] = '';
             $lines = array_merge($lines, $this->sunLines($sun));
@@ -1545,7 +1550,7 @@ class WhatsappBotService
             // says so instead of sending them to fetch what they just read.
             $lines[] = $airport->aip_details_updated_at === null
                 ? '_MADHEL remite a la AIP para este aeródromo: ais.anac.gob.ar/aip_'
-                : '_Combustible, teléfono, horario y frecuencia según la AIP._';
+                : '_Combustible, teléfono, horario, frecuencia y radioayudas según la AIP._';
         }
 
         return WhatsappReply::ofMany(
@@ -1584,6 +1589,42 @@ class WhatsappBotService
                     $at->format('H:i'),
                     $at->setTimezone(ShnSunService::OFFSET)->format('H:i'),
                 );
+        }
+
+        return $lines;
+    }
+
+    /**
+     * The aids a pilot tunes on the way in, off AD 2.19 of the aerodrome's own
+     * AIP ficha — "VOR/DME OSA — 112.5 MHz (H24)".
+     *
+     * Nothing at all when there are none, rather than a "sin radioayudas"
+     * line, and for two different reasons that happen to point the same way:
+     * only the ~40 aerodromes MADHEL delegates to the AIP are ever read for
+     * this at all, so a silent ficha usually means nobody looked; and the AD
+     * 2.19 of one that was looked at is a table about the aids that exist, not
+     * a statement that a place has none.
+     *
+     * The identifier is next to the type rather than after the frequency
+     * because it is what a pilot checks the Morse against once the frequency
+     * is set, and reading "VOR/DME OSA" as one phrase is how the chart prints
+     * it too.
+     *
+     * @return array<int, string>
+     */
+    protected function navaidLines(Airport $airport): array
+    {
+        if ($airport->aip_navaids === null || $airport->aip_navaids === []) {
+            return [];
+        }
+
+        $lines = ['*Radioayudas*'];
+
+        foreach ($airport->aip_navaids as $navaid) {
+            $aid = trim($navaid['type'].' '.($navaid['id'] ?? ''));
+
+            $lines[] = "📡 {$aid} — {$navaid['frequency']} {$navaid['unit']}"
+                .($navaid['hours'] === null ? '' : " ({$navaid['hours']})");
         }
 
         return $lines;

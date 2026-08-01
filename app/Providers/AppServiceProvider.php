@@ -6,6 +6,7 @@ use App\Contracts\WhatsappSender;
 use App\Services\AerometService;
 use App\Services\MagneticVariationService;
 use App\Services\MetarService;
+use App\Services\MetaWhatsappSender;
 use App\Services\NoaaMetarSource;
 use App\Services\NoaaTafSource;
 use App\Services\OgimetAerometSource;
@@ -13,7 +14,6 @@ use App\Services\OurAirportsRunwaySource;
 use App\Services\SmnMetarSource;
 use App\Services\SmnTafSource;
 use App\Services\TafService;
-use App\Services\TwilioWhatsappSender;
 use App\Support\AdminMetrics;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -28,7 +28,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->bind(WhatsappSender::class, TwilioWhatsappSender::class);
+        $this->app->bind(WhatsappSender::class, MetaWhatsappSender::class);
 
         // Order is the failover order, and it is deliberate: the SMN is the
         // authority for Argentine aerodromes, so it is asked first and NOAA

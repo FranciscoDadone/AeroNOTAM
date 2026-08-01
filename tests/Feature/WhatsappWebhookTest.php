@@ -1,51 +1,45 @@
 <?php
 
 use App\Jobs\ProcessWhatsappMessage;
+use App\Models\WhatsappMessage;
 use Illuminate\Support\Facades\Queue;
-use Illuminate\Testing\TestResponse;
-use Twilio\Security\RequestValidator;
 
 beforeEach(function () {
-    config(['services.twilio.token' => 'test-auth-token']);
+    config([
+        'services.whatsapp.app_secret' => 'test-app-secret',
+        'services.whatsapp.verify_token' => 'test-verify-token',
+    ]);
 
     Queue::fake();
 });
 
-/**
- * @param  array<string, string>  $payload
- */
-function postSigned(array $payload): TestResponse
-{
-    $url = url('/whatsapp/webhook');
-    $signature = (new RequestValidator(config('services.twilio.token')))
-        ->computeSignature($url, $payload);
-
-    return test()
-        ->withHeaders(['X-Twilio-Signature' => $signature])
-        ->post('/whatsapp/webhook', $payload);
-}
-
 it('queues a reply for a properly signed request', function () {
-    postSigned(['From' => 'whatsapp:+5491111111111', 'Body' => 'ezeiza'])
-        ->assertOk()
-        ->assertHeader('Content-Type', 'text/xml; charset=UTF-8');
+    postSigned(metaPayload())->assertOk();
 
     Queue::assertPushed(ProcessWhatsappMessage::class);
 });
 
 /**
- * The SID travels with the job: it's what Twilio anchors the typing
- * indicator to, and it's only available here.
+ * Meta gives the number in bare digits; everything downstream — the log, the
+ * subscriptions — expects it the way WhatsApp writes it.
  */
-it('passes the inbound message sid through to the job', function () {
-    postSigned([
-        'From' => 'whatsapp:+5491111111111',
-        'Body' => 'ezeiza',
-        'MessageSid' => 'SM123',
-    ])->assertOk();
+it('restores the whatsapp: prefix on the sender', function () {
+    postSigned(metaPayload(from: '5491133334444'))->assertOk();
 
     Queue::assertPushed(function (ProcessWhatsappMessage $job) {
-        return (new ReflectionProperty($job, 'messageSid'))->getValue($job) === 'SM123';
+        return (new ReflectionProperty($job, 'from'))->getValue($job) === 'whatsapp:+5491133334444';
+    });
+});
+
+/**
+ * The id travels with the job: it's what Meta anchors the typing indicator to,
+ * and it's only available here.
+ */
+it('passes the inbound message id through to the job', function () {
+    postSigned(metaPayload(messageId: 'wamid.ABC123'))->assertOk();
+
+    Queue::assertPushed(function (ProcessWhatsappMessage $job) {
+        return (new ReflectionProperty($job, 'messageSid'))->getValue($job) === 'wamid.ABC123';
     });
 });
 
@@ -54,40 +48,80 @@ it('passes the inbound message sid through to the job', function () {
  * the only thing standing between it and anyone spending our AI budget.
  */
 it('rejects a request without a valid signature', function () {
-    $this->withHeaders(['X-Twilio-Signature' => 'obviously-wrong'])
-        ->post('/whatsapp/webhook', ['From' => 'whatsapp:+5491111111111', 'Body' => 'ezeiza'])
+    $this->withHeaders(['X-Hub-Signature-256' => 'sha256=obviouslywrong'])
+        ->postJson('/whatsapp/webhook', metaPayload())
         ->assertForbidden();
 
     Queue::assertNothingPushed();
 });
 
-it('rejects everything when no twilio token is configured', function () {
-    config(['services.twilio.token' => null]);
+it('rejects everything when no app secret is configured', function () {
+    config(['services.whatsapp.app_secret' => null]);
 
-    $this->post('/whatsapp/webhook', ['From' => 'whatsapp:+5491111111111', 'Body' => 'ezeiza'])
-        ->assertForbidden();
+    $this->postJson('/whatsapp/webhook', metaPayload())->assertForbidden();
 
     Queue::assertNothingPushed();
 });
 
 it('acknowledges but queues nothing for an empty body', function () {
-    postSigned(['From' => 'whatsapp:+5491111111111', 'Body' => ''])
-        ->assertOk();
+    postSigned(metaPayload(text: ''))->assertOk();
 
     Queue::assertNothingPushed();
 });
 
 /**
- * A tapped quick reply arrives as an ordinary inbound message whose Body is the
- * button's caption, plus the action id we put on the button ourselves. That id
- * is what makes the tap unambiguous, so it has to reach the job.
+ * Delivery receipts for messages we sent arrive on the same webhook. Nothing
+ * here acts on them, and logging them would fill the panel with rows nobody
+ * wrote.
+ */
+it('ignores a status update', function () {
+    postSigned([
+        'object' => 'whatsapp_business_account',
+        'entry' => [['id' => '1357575039812140', 'changes' => [['field' => 'messages', 'value' => [
+            'messaging_product' => 'whatsapp',
+            'statuses' => [['id' => 'wamid.SENT', 'status' => 'delivered', 'recipient_id' => '5491111111111']],
+        ]]]]],
+    ])->assertOk();
+
+    Queue::assertNothingPushed();
+    expect(WhatsappMessage::count())->toBe(0);
+});
+
+/**
+ * Meta retries a webhook it considers unacknowledged. The same message arriving
+ * twice must not answer the user twice.
+ */
+it('does not answer twice when meta retries the same message', function () {
+    postSigned(metaPayload(messageId: 'wamid.RETRY'))->assertOk();
+    postSigned(metaPayload(messageId: 'wamid.RETRY'))->assertOk();
+
+    Queue::assertPushed(ProcessWhatsappMessage::class, 1);
+    expect(WhatsappMessage::count())->toBe(1);
+});
+
+/**
+ * Meta batches: several messages can share one request, and reading only the
+ * first would silently drop the rest.
+ */
+it('handles every message in a batched payload', function () {
+    $first = metaPayload(from: '5491111111111', text: 'eze', messageId: 'wamid.ONE');
+    $second = metaPayload(from: '5492222222222', text: 'aep', messageId: 'wamid.TWO');
+
+    $first['entry'][] = $second['entry'][0];
+
+    postSigned($first)->assertOk();
+
+    Queue::assertPushed(ProcessWhatsappMessage::class, 2);
+    expect(WhatsappMessage::count())->toBe(2);
+});
+
+/**
+ * A tapped quick reply arrives as an inbound message carrying the action id we
+ * put on the button ourselves. That id is what makes the tap unambiguous, so it
+ * has to reach the job.
  */
 it('passes a tapped button payload through to the job', function () {
-    postSigned([
-        'From' => 'whatsapp:+5491111111111',
-        'Body' => '🔔 Avisarme 12 h',
-        'ButtonPayload' => 'sub:SAEZ:12',
-    ])->assertOk();
+    postSigned(metaPayload(text: '🔔 Avisarme 12 h', buttonId: 'sub:SAEZ:12'))->assertOk();
 
     Queue::assertPushed(function (ProcessWhatsappMessage $job) {
         return (new ReflectionProperty($job, 'buttonPayload'))->getValue($job) === 'sub:SAEZ:12';
@@ -95,7 +129,7 @@ it('passes a tapped button payload through to the job', function () {
 });
 
 it('leaves the button payload null for a typed message', function () {
-    postSigned(['From' => 'whatsapp:+5491111111111', 'Body' => 'ezeiza'])->assertOk();
+    postSigned(metaPayload())->assertOk();
 
     Queue::assertPushed(function (ProcessWhatsappMessage $job) {
         return (new ReflectionProperty($job, 'buttonPayload'))->getValue($job) === null;
@@ -103,13 +137,31 @@ it('leaves the button payload null for a typed message', function () {
 });
 
 it('passes a tapped menu payload through to the job', function () {
-    postSigned([
-        'From' => 'whatsapp:+5491111111111',
-        'Body' => '🔭 TAF',
-        'ButtonPayload' => 'ask:taf:SAEZ',
-    ])->assertOk();
+    postSigned(metaPayload(text: '🔭 TAF', buttonId: 'ask:taf:SAEZ'))->assertOk();
 
     Queue::assertPushed(function (ProcessWhatsappMessage $job) {
         return (new ReflectionProperty($job, 'buttonPayload'))->getValue($job) === 'ask:taf:SAEZ';
     });
+});
+
+/**
+ * Meta calls this when the webhook is subscribed and will only accept the
+ * endpoint if it echoes the challenge back.
+ */
+it('echoes the challenge back when the verify token matches', function () {
+    $this->get('/whatsapp/webhook?hub_mode=subscribe&hub_verify_token=test-verify-token&hub_challenge=1158201444')
+        ->assertOk()
+        ->assertSee('1158201444');
+});
+
+it('refuses the handshake when the verify token is wrong', function () {
+    $this->get('/whatsapp/webhook?hub_mode=subscribe&hub_verify_token=nope&hub_challenge=1158201444')
+        ->assertForbidden();
+});
+
+it('refuses the handshake when no verify token is configured', function () {
+    config(['services.whatsapp.verify_token' => null]);
+
+    $this->get('/whatsapp/webhook?hub_mode=subscribe&hub_verify_token=&hub_challenge=1158201444')
+        ->assertForbidden();
 });

@@ -19,7 +19,7 @@ class ProcessWhatsappMessage implements ShouldQueue
     public int $timeout = 120;
 
     /**
-     * ANAC, the SMN and Twilio all have transient failures, and the user is
+     * ANAC, the SMN and WhatsApp all have transient failures, and the user is
      * sitting in a chat waiting for an answer — worth retrying before giving up.
      */
     public int $tries = 3;

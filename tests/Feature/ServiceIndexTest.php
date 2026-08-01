@@ -1,7 +1,7 @@
 <?php
 
 it('serves the landing page at the root', function () {
-    config()->set('services.twilio.whatsapp_from', 'whatsapp:+14155238886');
+    config()->set('services.whatsapp.number', '14155238886');
 
     $this->get('/')
         ->assertOk()
@@ -10,7 +10,7 @@ it('serves the landing page at the root', function () {
 });
 
 it('drops the WhatsApp call to action when no number is configured', function () {
-    config()->set('services.twilio.whatsapp_from', null);
+    config()->set('services.whatsapp.number', null);
 
     $this->get('/')
         ->assertOk()
@@ -19,4 +19,21 @@ it('drops the WhatsApp call to action when no number is configured', function ()
 
 it('responds to the health check', function () {
     $this->get('/up')->assertOk();
+});
+
+/**
+ * Meta will not publish an app without one, and it is checked from the outside:
+ * it has to answer without a session, a token or a number configured.
+ */
+it('serves the privacy notice', function () {
+    config()->set('services.whatsapp.number', null);
+
+    $this->get('/privacidad')
+        ->assertOk()
+        ->assertSee('Política de privacidad')
+        ->assertSee('dadonefran@gmail.com');
+});
+
+it('links the privacy notice from the landing page', function () {
+    $this->get('/')->assertOk()->assertSee('/privacidad');
 });

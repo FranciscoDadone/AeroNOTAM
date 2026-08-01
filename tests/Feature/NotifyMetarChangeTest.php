@@ -4,6 +4,7 @@ use App\Contracts\WhatsappSender;
 use App\Jobs\NotifyMetarChange;
 use App\Jobs\SendWhatsappMessage;
 use App\Services\WhatsappBotService;
+use Illuminate\Http\Client\RequestException;
 use Tests\Support\FakeWhatsappSender;
 
 beforeEach(function () {
@@ -34,36 +35,16 @@ function alertJob(array $changes = ['Visibilidad: 10 km o más → 4000 m.']): N
 }
 
 it('sends the alert with the unsubscribe button attached', function () {
-    config(['services.twilio.content_sid_alert' => 'HXalert']);
-
     alertJob()->handle(app(WhatsappBotService::class), $this->sender);
 
     expect($this->sender->sentWithButtons)->toHaveCount(1)
         ->and($this->sender->sentWithButtons[0]['to'])->toBe('whatsapp:+5491122334455')
-        ->and($this->sender->sentWithButtons[0]['contentSid'])->toBe('HXalert')
-        // The aerodrome the button acts on comes back to us as ButtonPayload.
-        ->and($this->sender->sentWithButtons[0]['variables'][2])->toBe('SAEZ')
-        ->and($this->sender->templatedBodies()[0])
+        // The aerodrome the button acts on comes back to us as the tapped id.
+        ->and($this->sender->buttonIds())->toBe(['unsub:SAEZ'])
+        ->and($this->sender->buttonedBodies()[0])
         ->toContain('Qué cambió')
         ->toContain('Visibilidad: 10 km o más → 4000 m.')
         ->toContain('METAR SAEZ 271400Z 20018G30KT');
-});
-
-/**
- * The button is a convenience over an interface that has always been text. With
- * no template registered the alert still goes out, carrying the command that
- * does the same thing.
- */
-it('falls back to plain text when no template is registered', function () {
-    config(['services.twilio.content_sid_alert' => null]);
-
-    alertJob()->handle(app(WhatsappBotService::class), $this->sender);
-
-    expect($this->sender->sentWithButtons)->toBeEmpty()
-        ->and($this->sender->sent)->toHaveCount(1)
-        ->and($this->sender->bodies()[0])
-        ->toContain('METAR SAEZ 271400Z 20018G30KT')
-        ->toContain('baja SAEZ');
 });
 
 /**
@@ -87,3 +68,24 @@ it('sends the expiry notice as plain text', function () {
         ->toContain('Se venció tu alerta')
         ->toContain('EZE');
 });
+
+/**
+ * A recipient who let the 24-hour window close cannot be written to at all, so
+ * this is not a delivery that might work next time — it is one that will not.
+ * Retrying it twice more only delays the failure and burns the queue's patience
+ * on a message nobody can receive.
+ */
+it('gives up rather than retries when the 24-hour window has closed', function () {
+    $this->app->instance(WhatsappSender::class, $sender = outOfWindowSender());
+
+    alertJob()->handle(app(WhatsappBotService::class), $sender);
+})->throwsNoExceptions();
+
+/**
+ * Every other API failure is worth another go: the number is still reachable.
+ */
+it('propagates any other api failure so the queue can retry', function () {
+    $this->app->instance(WhatsappSender::class, $sender = rejectingSender(131026));
+
+    alertJob()->handle(app(WhatsappBotService::class), $sender);
+})->throws(RequestException::class);

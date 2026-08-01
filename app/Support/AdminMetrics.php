@@ -169,7 +169,7 @@ class AdminMetrics
 
     /**
      * How long the user waits, from the job picking the message up to the last
-     * body handed to Twilio. The 95th percentile matters more than the average:
+     * body handed to WhatsApp. The 95th percentile matters more than the average:
      * the slow answers are the AI-decoded ones, and those are the interesting
      * ones to watch.
      *

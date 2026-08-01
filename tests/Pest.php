@@ -1,6 +1,11 @@
 <?php
 
+use App\Contracts\WhatsappSender;
+use App\DataObjects\ReplyButton;
+use GuzzleHttp\Psr7\Response;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /*
@@ -396,20 +401,102 @@ function withoutAi(): void
 }
 
 /**
- * Register a SID for every button template. Blank is the default everywhere
- * else on purpose — that is what a fresh Twilio account looks like, and the
- * bot has to answer without them.
+ * The ids of the actions a button offers — what a tap sends back to us, and
+ * the only part of a button the bot's own grammar has to agree with.
+ *
+ * @return array<int, string>
  */
-function withButtonTemplates(): void
+function buttonIds(?ReplyButton $button): array
 {
-    config([
-        'services.twilio.content_sid_metar' => 'HXsub',
-        'services.twilio.content_sid_alert' => 'HXalert',
-        'services.twilio.content_sid_aeromet' => 'HXaeromet',
-        'services.twilio.content_sid_menu_notam' => 'HXmenunotam',
-        'services.twilio.content_sid_menu_metar' => 'HXmenumetar',
-        'services.twilio.content_sid_menu_taf' => 'HXmenutaf',
-        'services.twilio.content_sid_menu_crepusculo' => 'HXmenusol',
-        'services.twilio.content_sid_menu_info' => 'HXmenuinfo',
-    ]);
+    return $button === null ? [] : array_column($button->buttons, 'id');
+}
+
+/**
+ * One inbound WhatsApp message, shaped the way Meta delivers it: nested under
+ * entry → changes → value, with the number in bare digits and the body under
+ * either "text" or the tapped button.
+ *
+ * @return array<string, mixed>
+ */
+function metaPayload(string $from = '5491111111111', ?string $text = 'ezeiza', ?string $buttonId = null, string $messageId = 'wamid.TEST', ?string $profileName = null): array
+{
+    $message = ['from' => $from, 'id' => $messageId, 'timestamp' => '1753920000'];
+
+    if ($buttonId !== null) {
+        $message['type'] = 'interactive';
+        $message['interactive'] = [
+            'type' => 'button_reply',
+            'button_reply' => ['id' => $buttonId, 'title' => $text ?? $buttonId],
+        ];
+    } else {
+        $message['type'] = 'text';
+        $message['text'] = ['body' => (string) $text];
+    }
+
+    $value = ['messaging_product' => 'whatsapp', 'messages' => [$message]];
+
+    if ($profileName !== null) {
+        $value['contacts'] = [['profile' => ['name' => $profileName], 'wa_id' => $from]];
+    }
+
+    return [
+        'object' => 'whatsapp_business_account',
+        'entry' => [['id' => '1357575039812140', 'changes' => [['field' => 'messages', 'value' => $value]]]],
+    ];
+}
+
+/**
+ * POST a payload to the webhook signed the way Meta signs it: HMAC-SHA256 of
+ * the raw body under the app secret.
+ *
+ * @param  array<string, mixed>  $payload
+ */
+function postSigned(array $payload): TestResponse
+{
+    $body = (string) json_encode($payload);
+
+    // The header goes in as a server variable rather than through
+    // withHeaders(): call() is the only helper that lets us hand over the raw
+    // body Meta signs, and it reads server variables alone.
+    return test()->call('POST', '/whatsapp/webhook', [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_X_HUB_SIGNATURE_256' => 'sha256='.hash_hmac('sha256', $body, (string) config('services.whatsapp.app_secret')),
+    ], $body);
+}
+
+/**
+ * A sender that fails the way Meta does when a message is refused: an HTTP
+ * error carrying an error code in its body. 131047 is the one that means the
+ * 24-hour service window has closed.
+ */
+function rejectingSender(int $errorCode): WhatsappSender
+{
+    return new class($errorCode) implements WhatsappSender
+    {
+        public function __construct(protected int $errorCode) {}
+
+        public function send(string $to, string $body): void
+        {
+            $this->reject();
+        }
+
+        public function sendWithButtons(string $to, string $body, array $buttons): void
+        {
+            $this->reject();
+        }
+
+        public function indicateTyping(string $inboundMessageId): void {}
+
+        protected function reject(): void
+        {
+            throw new RequestException(new Illuminate\Http\Client\Response(
+                new Response(400, [], (string) json_encode(['error' => ['code' => $this->errorCode]])),
+            ));
+        }
+    };
+}
+
+function outOfWindowSender(): WhatsappSender
+{
+    return rejectingSender(131047);
 }

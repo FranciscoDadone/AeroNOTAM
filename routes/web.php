@@ -7,19 +7,33 @@ use App\Http\Controllers\WhatsappWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /**
- * The landing page is the public web UI: everything else is a JSON API, a
- * WhatsApp bot and the panel behind /admin. All it needs from the app is the
- * number to write to, which lives in the Twilio config.
+ * The number to write to, in the two shapes the public pages need it. Both of
+ * them draw the same nav, and the nav is where the "Abrir WhatsApp" link lives.
+ *
+ * @return array{number: string, link: ?string}
  */
-Route::get('/', function () {
-    $number = (string) preg_replace('/\D/', '', (string) config('services.twilio.whatsapp_from'));
+$whatsappLink = function (): array {
+    $number = (string) preg_replace('/\D/', '', (string) config('services.whatsapp.number'));
 
-    return view('landing', [
+    return [
         'number' => $number,
         'link' => $number === '' ? null : 'https://wa.me/'.$number,
-    ]);
-});
+    ];
+};
 
+/**
+ * The landing page is the public web UI: everything else is a JSON API, a
+ * WhatsApp bot and the panel behind /admin.
+ */
+Route::get('/', fn () => view('landing', $whatsappLink()));
+
+/**
+ * Required to publish the Meta app the bot talks WhatsApp through, and worth
+ * having on its own: the bot keeps every message written to it.
+ */
+Route::get('/privacidad', fn () => view('privacidad', $whatsappLink()));
+
+Route::get('/whatsapp/webhook', [WhatsappWebhookController::class, 'verify']);
 Route::post('/whatsapp/webhook', [WhatsappWebhookController::class, 'handle']);
 
 Route::prefix('admin')->name('admin.')->group(function () {

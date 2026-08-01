@@ -7,8 +7,7 @@ use App\DataObjects\WhatsappReply;
 
 /**
  * Sends every body a WhatsappReply carries, each with whichever button
- * outbound() paired it with — plain text where there is none, a content
- * template with its fallback where there is.
+ * outbound() paired it with.
  */
 trait DeliversWhatsappReply
 {
@@ -21,12 +20,7 @@ trait DeliversWhatsappReply
                 continue;
             }
 
-            $sender->sendWithButtons(
-                $to,
-                $button->contentSid,
-                $button->variables($body),
-                $body."\n\n".$button->fallbackHint,
-            );
+            $sender->sendWithButtons($to, $body, $button->buttons);
         }
     }
 }

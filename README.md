@@ -163,7 +163,7 @@ que evita que los otros tres apliquen las migraciones a la vez sobre el mismo
 archivo SQLite.
 
 La configuración se lee del `.env` del repositorio, así que el contenedor toma
-las mismas claves de Twilio y OpenRouter que el entorno local. Dos cosas que
+las mismas claves de WhatsApp y OpenRouter que el entorno local. Dos cosas que
 conviene mirar antes de exponer el puerto: `APP_ENV=local` deja habilitado el
 endpoint `/api/whatsapp/test`, y `APP_DEBUG=true` muestra los stack traces.
 
@@ -194,10 +194,10 @@ IMAGE_TAG=sha-1af8cfc docker compose up -d
 Requiere dos secretos en el repositorio: `DOCKERHUB_USERNAME` y
 `DOCKERHUB_TOKEN` (un access token de Docker Hub, no la contraseña).
 
-Para que Twilio llegue al webhook hace falta una URL pública apuntando a
-`http://localhost:8090` (`ngrok http 8090`); la app ya confía en los headers del
-proxy, que es lo que hace que la firma del webhook valide sin importar cuántos
-saltos haya en el medio.
+Para que Meta llegue al webhook hace falta una URL pública apuntando a
+`http://localhost:8090` (`ngrok http 8090`). La firma viaja sobre el cuerpo del
+request y no sobre la URL, así que el túnel no la rompe por más saltos que haya
+en el medio.
 
 ## La landing
 
@@ -218,9 +218,14 @@ al compartir el enlace y `flybot-touch.png` para el ícono de pantalla de inicio
 No pasan por Vite —son archivos estáticos servidos tal cual— así que
 reemplazarlos no necesita recompilar nada.
 
-El número del botón sale de `TWILIO_WHATSAPP_FROM`, así que la página apunta
-sola a donde esté configurado el bot. Sin esa variable no se publica ningún
-enlace, en vez de uno roto.
+El número del botón sale de `WHATSAPP_NUMBER`, así que la página apunta sola a
+donde esté configurado el bot. Sin esa variable no se publica ningún enlace, en
+vez de uno roto.
+
+`/privacidad` es la otra vista pública: qué guarda el bot de cada conversación,
+para qué y cómo pedir que se borre. Comparte el nav y el pie con la portada
+(`resources/views/partials/`). Existe además porque Meta no publica una
+aplicación sin una política de privacidad accesible.
 
 ## API
 
@@ -261,9 +266,17 @@ llamada paga al modelo por cada NOTAM.
 
 ## Bot de WhatsApp
 
-Twilio postea a `POST /whatsapp/webhook`, cuya firma se valida antes de aceptar
-nada. La respuesta se arma en una cola (`ProcessWhatsappMessage`) para no
-hacer esperar a Twilio.
+Meta postea a `POST /whatsapp/webhook`, firmado con el secreto de la aplicación
+sobre el cuerpo crudo del request: se valida antes de aceptar nada. La respuesta
+se arma en una cola (`ProcessWhatsappMessage`) para contestar el 200 enseguida —
+lo que no se acusa a tiempo, Meta lo reintenta.
+
+Por eso mismo cada mensaje se guarda con su `wamid` y un reintento no vuelve a
+responder: el identificador es único por mensaje y la fila ya existe.
+
+`GET /whatsapp/webhook` responde el saludo de suscripción, que es como Meta da
+de alta la URL: devuelve el `hub_challenge` si el `hub_verify_token` coincide
+con `WHATSAPP_VERIFY_TOKEN`.
 
 El bot entiende `"EZE"`, `"SAEZ"`, `"ezeiza"` o `"hay notams en Ezeiza?"`.
 Cuando un nombre es ambiguo — Córdoba tiene tres aeródromos — pregunta en vez
@@ -560,50 +573,38 @@ php artisan metar:watch
 
 ### Los botones
 
-WhatsApp no dibuja un botón desde texto libre: hace falta una *content template*
-de Twilio. Se crean una sola vez por cuenta y sus SID van al `.env`:
+Van dentro del mismo pedido que el texto (`ReplyButton` → mensaje `interactive`
+de la Cloud API): no hay nada que registrar de antemano ni aprobación que
+esperar. Cada botón es un identificador que elegimos nosotros y un título que el
+lector ve; al tocarlo, el identificador vuelve tal cual y `WhatsappBotService` lo
+parsea con sus patrones `BUTTON_*`. Ahí viaja el aeródromo, que es lo que hace
+que un toque no necesite adivinar nada.
 
-```bash
-php artisan whatsapp:content-templates
-# TWILIO_CONTENT_SID_METAR=HX...
-# TWILIO_CONTENT_SID_ALERT=HX...
-# TWILIO_CONTENT_SID_PISTA=HX...
-# TWILIO_CONTENT_SID_MENU_INFO=HX...
-```
-
-No se someten a aprobación de WhatsApp y no hace falta: la aprobación compra el
-derecho a escribirle a alguien de la nada, y éstas sólo salen dentro de la
-ventana que abrió el mensaje del propio usuario.
+Nada en tiempo de ejecución ata los identificadores que se emiten con la
+gramática que los lee, así que eso lo cuida `tests/Unit/ReplyButtonTest.php`.
 
 **WhatsApp dibuja como mucho tres botones por mensaje**, y de ahí sale la forma
 que tiene todo esto. Los menús de seguimiento ya gastan los tres, así que la
 oferta **🛬 Viento en pista** viaja en el mensaje mismo, donde había lugar:
 
-- `TWILIO_CONTENT_SID_METAR` lleva **dos** botones, 🔔 Avisarme y 🛬 Viento en
-  pista, y va bajo cada METAR.
-- `TWILIO_CONTENT_SID_PISTA` lleva sólo el 🛬. Es el que va bajo el último
-  mensaje de una respuesta de NOTAM y al pie de la ficha, y también bajo un
-  METAR de un aeródromo al que el lector ya está suscripto — ahí el botón de
-  alta prometería algo que ya pasa.
+- Bajo cada METAR van **dos**: 🔔 Avisarme 12 h y 🛬 Viento en pista.
+- Sólo el 🛬 va bajo el último mensaje de una respuesta de NOTAM, al pie de la
+  ficha, y bajo el METAR de un aeródromo al que el lector ya está suscripto —
+  ahí el de alta prometería algo que ya pasa.
 
 Bajo los NOTAM y la ficha el botón se ofrece **sólo si hay rumbos de pista
-cargados**, al revés que bajo el METAR. Ahí no se puede: los dos botones comparten plantilla y
-las acciones de una plantilla quedan fijas al registrarla. Acá el botón está
-solo, así que se manda únicamente cuando va a contestar algo — un botón que
-lleva a _"no tengo los rumbos de pista"_ es peor que ningún botón, y además un
-mensaje con botón se parte al presupuesto más corto de las plantillas, que
-costaría mensajes de más para nada.
+cargados**, al revés que bajo el METAR: ahí está solo, así que se manda
+únicamente cuando va a contestar algo. Un botón que lleva a _"no tengo los
+rumbos de pista"_ es peor que ningún botón, y además un mensaje con botones se
+parte al presupuesto más corto (1024 caracteres en vez de los 1500 habituales),
+que costaría mensajes de más para nada.
 
-Los menús de seguimiento son cinco, uno por tema: cada uno ofrece otros tres
-para el mismo aeródromo, y hay uno por tema porque los títulos de los botones
-quedan fijos al registrar la plantilla. El de la ficha
-(`TWILIO_CONTENT_SID_MENU_INFO`) es el que más se manda, porque la ficha es la
-respuesta por defecto: ofrece NOTAM, METAR y TAF, que es lo que alguien quiere
-saber justo después de enterarse de que el lugar existe.
-
-**Sin esos SID el bot funciona igual.** Los mensajes salen en texto plano con el
-comando escrito equivalente al pie (_"Respondeme «avisame SAEZ»"_). El botón
-ahorra tipear; nunca es el único camino.
+Los menús de seguimiento ofrecen otros tres temas para el mismo aeródromo, sin
+repetir el que se acaba de contestar. El de la ficha es el que más se manda,
+porque la ficha es la respuesta por defecto: ofrece NOTAM, METAR y TAF, que es
+lo que alguien quiere saber justo después de enterarse de que el lugar existe.
+El menú es un mensaje aparte y no más botones sobre la respuesta, porque un
+mensaje dibuja un solo juego.
 
 Con SQLite, activá WAL para que el worker y el servidor web no se bloqueen
 mutuamente:

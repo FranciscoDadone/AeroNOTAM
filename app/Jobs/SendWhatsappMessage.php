@@ -13,7 +13,7 @@ use Throwable;
  *
  * For the notices the application originates rather than replies with — the
  * "your alert expired" line, and anything like it. It exists so that a command
- * doing a round of work never has to hold a Twilio call open in the middle of
+ * doing a round of work never has to hold an API call open in the middle of
  * it, or lose the round because one recipient's delivery failed.
  */
 class SendWhatsappMessage implements ShouldQueue

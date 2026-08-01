@@ -89,37 +89,27 @@ it('declares a retry policy', function () {
 
 /**
  * The follow-up menu is a message of its own, sent after the answer — never
- * merged onto it, since a WhatsApp message can only carry buttons from one
- * content template.
+ * merged onto it, since WhatsApp renders one set of buttons per message.
  */
 it('sends the menu as a message of its own after the answer', function () {
-    withButtonTemplates();
-
     (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'notams aeroparque'))
         ->handle(app(WhatsappBotService::class), $this->sender);
 
     expect($this->sender->sent)->toHaveCount(3)
         ->and($this->sender->sentWithButtons)->toHaveCount(1)
-        ->and($this->sender->templatedBodies()[0])->toContain('AEROPARQUE')
-        ->and($this->sender->sentWithButtons[0]['variables'][2])->toBe('SABE');
+        ->and($this->sender->buttonedBodies()[0])->toContain('AEROPARQUE')
+        ->and($this->sender->buttonIds())->toBe(['ask:metar:SABE', 'ask:taf:SABE', 'ask:crepusculo:SABE']);
 });
 
-it('sends the watch offer and the menu as two separate templated messages', function () {
+it('sends the watch offer and the menu as two separate messages', function () {
     fakeMetar();
-    withButtonTemplates();
 
     (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'metar EZE'))
         ->handle(app(WhatsappBotService::class), $this->sender);
 
     expect($this->sender->sentWithButtons)->toHaveCount(2)
-        ->and($this->sender->sentWithButtons[0]['contentSid'])->toBe('HXsub')
-        ->and($this->sender->sentWithButtons[1]['contentSid'])->toBe('HXmenumetar');
-});
-
-it('sends nothing extra when no menu template is registered', function () {
-    (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'notams aeroparque'))
-        ->handle(app(WhatsappBotService::class), $this->sender);
-
-    expect($this->sender->sent)->toHaveCount(3)
-        ->and($this->sender->sentWithButtons)->toBeEmpty();
+        ->and(array_column($this->sender->sentWithButtons[0]['buttons'], 'id'))
+        ->toBe(['sub:SAEZ:12', 'pista:SAEZ'])
+        ->and(array_column($this->sender->sentWithButtons[1]['buttons'], 'id'))
+        ->toBe(['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']);
 });

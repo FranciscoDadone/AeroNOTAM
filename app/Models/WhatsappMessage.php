@@ -128,7 +128,7 @@ class WhatsappMessage extends Model
     }
 
     /**
-     * The number as a person would read it, without Twilio's channel prefix.
+     * The number as a person would read it, without the channel prefix.
      */
     public function phoneNumber(): string
     {

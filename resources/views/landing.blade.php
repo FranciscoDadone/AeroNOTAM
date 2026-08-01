@@ -16,27 +16,7 @@
 </head>
 <body>
 
-<nav class="sticky top-0 z-50 border-b border-line bg-ink/90 backdrop-blur">
-  <div class="mx-auto flex h-16 w-full max-w-[1120px] items-center justify-between gap-6 px-6">
-    <a href="#top" class="flex items-center gap-2.5 font-semibold tracking-[-0.02em]">
-      <img src="/images/flybot-logo-128.webp" alt="FlyBot" width="36" height="36" class="size-9">
-      FlyBot
-    </a>
-    <div class="hidden gap-7 text-[0.95rem] text-muted lg:flex">
-      <a href="#empezar" class="hover:text-body">Cómo empezar</a>
-      <a href="#que-hace" class="hover:text-body">Qué le pedís</a>
-      <a href="#decodifica" class="hover:text-body">Qué recibís</a>
-      <a href="#alertas" class="hover:text-body">Alertas</a>
-      <a href="#fuentes" class="hover:text-body">De dónde sale</a>
-    </div>
-    @if ($link)
-      <a href="{{ $link }}" target="_blank" rel="noopener"
-         class="rounded-lg bg-wa px-4 py-2.5 text-[0.95rem] font-medium whitespace-nowrap text-white hover:bg-[#0b5f33]">
-        Abrir WhatsApp
-      </a>
-    @endif
-  </div>
-</nav>
+@include('partials.nav')
 
 <header id="top" class="py-14 sm:py-20">
   <div class="mx-auto grid w-full max-w-[1120px] grid-cols-1 items-start gap-12 px-6 lg:grid-cols-[1fr_360px] lg:gap-16">
@@ -412,29 +392,7 @@
   </div>
 </section>
 
-<footer class="border-t border-line py-12">
-  <div class="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-between gap-5 px-6">
-    <div class="grid gap-1.5 text-[0.9rem] text-dim">
-      <p>
-        Hecho por <span class="font-medium text-body">Francisco Dadone</span> —
-        <a href="mailto:dadonefran@gmail.com" class="text-air hover:underline">dadonefran@gmail.com</a>
-      </p>
-      <p>
-        Ideado por <span class="font-medium text-body">Gabriel Jalabert</span> —
-        <a href="mailto:gabyjalabert@gmail.com" class="text-air hover:underline">gabyjalabert@gmail.com</a>
-      </p>
-      <p>
-        NOTAM de <a href="https://ais.anac.gob.ar" target="_blank" rel="noopener" class="text-air hover:underline">ANAC</a> ·
-        METAR y TAF del <a href="https://www.smn.gob.ar/metar" target="_blank" rel="noopener" class="text-air hover:underline">Servicio Meteorológico Nacional</a>.
-      </p>
-    </div>
-    <div class="flex gap-6 text-[0.9rem] text-muted">
-      <a href="#empezar" class="hover:text-body">Empezar</a>
-      <a href="#que-hace" class="hover:text-body">Qué le pedís</a>
-      <a href="#alertas" class="hover:text-body">Alertas</a>
-    </div>
-  </div>
-</footer>
+@include('partials.footer')
 
 </body>
 </html>

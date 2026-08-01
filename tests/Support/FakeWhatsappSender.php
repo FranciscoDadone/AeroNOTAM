@@ -13,7 +13,7 @@ class FakeWhatsappSender implements WhatsappSender
     public array $sent = [];
 
     /**
-     * @var array<int, array{to: string, contentSid: string, variables: array<int, string>, fallback: string}>
+     * @var array<int, array{to: string, body: string, buttons: array<int, array{id: string, title: string}>}>
      */
     public array $sentWithButtons = [];
 
@@ -31,44 +31,27 @@ class FakeWhatsappSender implements WhatsappSender
         $this->attempts++;
 
         if ($this->shouldFail) {
-            throw new RuntimeException('Twilio no disponible.');
+            throw new RuntimeException('WhatsApp no disponible.');
         }
 
         $this->sent[] = ['to' => $to, 'body' => $body];
     }
 
-    /**
-     * Mirrors the real sender's fallback: a blank content SID means no template
-     * is registered, and the message goes out as plain text. Recording it in
-     * $sent rather than $sentWithButtons is what lets a test assert that the
-     * user still got the answer.
-     */
-    public function sendWithButtons(string $to, string $contentSid, array $variables, string $fallback): void
+    public function sendWithButtons(string $to, string $body, array $buttons): void
     {
-        if ($contentSid === '') {
-            $this->send($to, $fallback);
-
-            return;
-        }
-
         $this->attempts++;
 
         if ($this->shouldFail) {
-            throw new RuntimeException('Twilio no disponible.');
+            throw new RuntimeException('WhatsApp no disponible.');
         }
 
-        $this->sentWithButtons[] = [
-            'to' => $to,
-            'contentSid' => $contentSid,
-            'variables' => $variables,
-            'fallback' => $fallback,
-        ];
+        $this->sentWithButtons[] = ['to' => $to, 'body' => $body, 'buttons' => $buttons];
     }
 
     public function indicateTyping(string $inboundMessageId): void
     {
         if ($this->shouldFail) {
-            throw new RuntimeException('Twilio no disponible.');
+            throw new RuntimeException('WhatsApp no disponible.');
         }
 
         $this->typing[] = $inboundMessageId;
@@ -83,16 +66,27 @@ class FakeWhatsappSender implements WhatsappSender
     }
 
     /**
-     * The rendered body of each templated message — what "{{1}}" was filled in
-     * with, which is the part a reader actually sees.
+     * The body of each message that carried buttons — the part a reader
+     * actually sees.
      *
      * @return array<int, string>
      */
-    public function templatedBodies(): array
+    public function buttonedBodies(): array
     {
-        return array_map(
-            fn (array $message): string => $message['variables'][1] ?? '',
+        return array_column($this->sentWithButtons, 'body');
+    }
+
+    /**
+     * The ids of every button offered, flattened across messages — what a tap
+     * would send back to us.
+     *
+     * @return array<int, string>
+     */
+    public function buttonIds(): array
+    {
+        return array_merge(...array_map(
+            fn (array $message) => array_column($message['buttons'], 'id'),
             $this->sentWithButtons,
-        );
+        ) ?: [[]]);
     }
 }

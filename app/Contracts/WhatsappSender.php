@@ -14,17 +14,14 @@ interface WhatsappSender
     /**
      * Deliver a message that carries tappable buttons underneath it.
      *
-     * WhatsApp will not render a button from free text: it has to come from a
-     * content template registered with the provider ahead of time, named here by
-     * $contentSid and filled in with $variables. When that SID is blank — the
-     * account has none registered yet — $fallback is sent as an ordinary message
-     * instead, so the feature degrades to the written command rather than
-     * failing.
+     * WhatsApp renders at most three, each one an id we choose — which comes
+     * back to us verbatim when it is tapped — and a caption of at most twenty
+     * characters. The body they hang under is capped at 1024, shorter than a
+     * plain message's.
      *
-     * @param  array<int, string>  $variables  Template substitutions, keyed 1, 2, … — json_encode
-     *                                         renders them as the "1"/"2" keys Twilio expects.
+     * @param  array<int, array{id: string, title: string}>  $buttons
      */
-    public function sendWithButtons(string $to, string $contentSid, array $variables, string $fallback): void;
+    public function sendWithButtons(string $to, string $body, array $buttons): void;
 
     /**
      * Show the "typing…" dots to whoever sent us $inboundMessageId, so the
@@ -33,7 +30,7 @@ interface WhatsappSender
      * WhatsApp keeps the indicator up for at most 25 seconds, or until our
      * next message arrives — whichever comes first.
      *
-     * @param  string  $inboundMessageId  Provider id of the message being answered (Twilio: an SM…/MM… SID).
+     * @param  string  $inboundMessageId  Provider id of the message being answered (Meta: a "wamid.…").
      */
     public function indicateTyping(string $inboundMessageId): void;
 }

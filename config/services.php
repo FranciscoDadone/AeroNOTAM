@@ -241,44 +241,24 @@ return [
         'ttl' => env('SHN_SUN_TTL', 2592000),
     ],
 
-    'twilio' => [
-        'sid' => env('TWILIO_ACCOUNT_SID'),
-        'token' => env('TWILIO_AUTH_TOKEN'),
-        'whatsapp_from' => env('TWILIO_WHATSAPP_FROM'),
+    'whatsapp' => [
+        // The number's own id inside the Cloud API, not the number itself:
+        // every send is a POST to /{phone_number_id}/messages.
+        'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),
 
-        // Content templates for the messages that carry a button. WhatsApp has
-        // no free-text way to send one, so these are created once per Twilio
-        // account with `php artisan whatsapp:content-templates` and their SIDs
-        // pasted here. Left blank, every message still goes out as plain text
-        // with the equivalent written command — the button is a convenience on
-        // top of an interface that works without it.
-        'content_sid_metar' => env('TWILIO_CONTENT_SID_METAR'),
-        'content_sid_alert' => env('TWILIO_CONTENT_SID_ALERT'),
+        // A system user token, which does not expire. The 24-hour one the
+        // developer panel hands out is for trying things by hand.
+        'token' => env('WHATSAPP_ACCESS_TOKEN'),
 
-        // The runway-wind offer on its own, for the METAR of an aerodrome the
-        // reader is already subscribed to: the template above carries both
-        // buttons, and it cannot be sent when the watch offer would be a
-        // promise about something already true.
-        'content_sid_pista' => env('TWILIO_CONTENT_SID_PISTA'),
+        // Meta signs every webhook with the app secret over the raw request
+        // body, and answers the subscription handshake with the verify token.
+        'app_secret' => env('WHATSAPP_APP_SECRET'),
+        'verify_token' => env('WHATSAPP_VERIFY_TOKEN'),
 
-        // Offered under a METAR that came back empty, for the aerodromes
-        // AEROMET also covers under the same name — a next thing to try
-        // instead of a dead end.
-        'content_sid_aeromet' => env('TWILIO_CONTENT_SID_AEROMET'),
+        // Only the landing page's wa.me link needs the number as such.
+        'number' => env('WHATSAPP_NUMBER'),
 
-        // One menu template per topic, offering the other three for the same
-        // aerodrome. There are four rather than one because a quick-reply
-        // template's captions are fixed when it is registered: the only thing
-        // that can vary at send time is the aerodrome, which rides in {{2}}.
-        // Left blank, the menu is not sent at all — unlike the two above it has
-        // no message to ride on, and an extra message repeating three commands
-        // the help text already lists would be noise rather than graceful
-        // degradation.
-        'content_sid_menu_notam' => env('TWILIO_CONTENT_SID_MENU_NOTAM'),
-        'content_sid_menu_metar' => env('TWILIO_CONTENT_SID_MENU_METAR'),
-        'content_sid_menu_taf' => env('TWILIO_CONTENT_SID_MENU_TAF'),
-        'content_sid_menu_crepusculo' => env('TWILIO_CONTENT_SID_MENU_CREPUSCULO'),
-        'content_sid_menu_info' => env('TWILIO_CONTENT_SID_MENU_INFO'),
+        'graph_version' => env('WHATSAPP_GRAPH_VERSION', 'v25.0'),
     ],
 
 ];

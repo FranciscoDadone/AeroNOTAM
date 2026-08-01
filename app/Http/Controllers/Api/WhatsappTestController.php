@@ -27,9 +27,9 @@ class WhatsappTestController extends Controller
      * Runs a message through the exact same pipeline the WhatsApp webhook
      * uses (airport matching + AI decoding + reply formatting) and returns
      * the resulting message(s) as JSON — lets you test the AI/bot behavior
-     * without needing a working Twilio integration.
+     * without needing a working WhatsApp integration.
      *
-     * "boton" stands in for the ButtonPayload Twilio sends when a user taps a
+     * "boton" stands in for the id that comes back when a user taps a
      * quick reply, which is otherwise unreachable without a real WhatsApp
      * conversation.
      */
@@ -53,15 +53,16 @@ class WhatsappTestController extends Controller
             'boton' => $boton ?: null,
             'cantidad_mensajes' => count($respuesta->messages),
             'respuestas' => $respuesta->messages,
-            // Null when the reply carries no offer; otherwise the aerodrome the
-            // button would act on, so the JSON shows what a tap would do.
-            'boton_ofrecido' => $respuesta->button?->payloadValue,
+            // Empty when the reply carries no offer; otherwise the ids a tap
+            // would send back, so the JSON shows what each button would do.
+            'botones_ofrecidos' => $respuesta->button === null
+                ? []
+                : array_column($respuesta->button->buttons, 'id'),
             // Null when no follow-up menu is offered; otherwise the message
-            // that would go out after the answer and the aerodrome its
-            // buttons act on.
+            // that would go out after the answer and what its buttons do.
             'menu_ofrecido' => $respuesta->menu === null ? null : [
                 'mensaje' => $respuesta->menu->body,
-                'aerodromo' => $respuesta->menu->button->payloadValue,
+                'botones' => array_column($respuesta->menu->button->buttons, 'id'),
             ],
         ]);
     }

@@ -3,28 +3,22 @@
 namespace App\DataObjects;
 
 /**
- * A one-tap action offered under a WhatsApp message.
+ * The one-tap actions offered under a WhatsApp message.
  *
- * WhatsApp has no free-text way to draw a button: it only renders one from a
- * pre-registered Twilio content template, referenced by SID and filled in with
- * variables at send time. That constraint is the whole shape of this class —
- * $contentSid says which template, $payloadValue is the one thing that varies
- * between sends (the aerodrome the button acts on, substituted into the
- * template's action id), and $fallbackHint is what to write instead when no
- * template has been registered.
- *
- * The fallback is not a degraded mode to be tolerated: the bot has always been
- * driven by writing to it, and the button only saves the typing. Anyone can
- * still type the hint, which is why it names a real command rather than
- * apologising.
+ * Each one is an id we choose and a caption the reader sees. The id comes back
+ * to us verbatim when the button is tapped, which is why the aerodrome travels
+ * inside it — the tap needs no guessing about what the user meant. The captions
+ * are capped at twenty characters and WhatsApp renders at most three of them,
+ * and that ceiling is the whole shape of this class: the follow-up menu has
+ * already spent its three on the other topics, so anything else has to ride on
+ * the answer itself.
  */
 final readonly class ReplyButton
 {
-    public function __construct(
-        public string $contentSid,
-        public string $payloadValue,
-        public string $fallbackHint,
-    ) {}
+    /**
+     * @param  array<int, array{id: string, title: string}>  $buttons
+     */
+    public function __construct(public array $buttons) {}
 
     /**
      * "Watch this aerodrome for the next twelve hours" — and, on the same
@@ -35,26 +29,21 @@ final readonly class ReplyButton
      * runway components are a question about the report just sent, so the
      * report is where the offer belongs.
      *
-     * The twelve is baked into the template's action id rather than passed at
-     * send time, because it is also the caption the user reads on the button —
-     * the two must not be able to drift apart.
+     * The twelve is in the id as well as the caption: the two must not be able
+     * to drift apart.
      */
     public static function subscribe(string $icaoCode): self
     {
-        return new self(
-            contentSid: (string) config('services.twilio.content_sid_metar'),
-            payloadValue: $icaoCode,
-            fallbackHint: "_Respondeme «avisame {$icaoCode}» y te aviso si cambia, o «viento en pista {$icaoCode}» para el componente en cada cabecera._",
-        );
+        return new self([
+            ['id' => "sub:{$icaoCode}:12", 'title' => '🔔 Avisarme 12 h'],
+            ['id' => "pista:{$icaoCode}", 'title' => '🛬 Viento en pista'],
+        ]);
     }
 
     /**
-     * "What is this wind doing to each runway?"
-     *
-     * Its own template because the one above cannot be sent to someone who is
-     * already subscribed — the other button would offer them something they
-     * already have — and this offer should not disappear just because the watch
-     * one has nothing left to say.
+     * The same runway offer on its own, for the METAR of an aerodrome the
+     * reader already watches: the pair above cannot be sent there, because its
+     * other button would promise something that is already true.
      *
      * $code is the aerodrome's OACI code where it has one and its ANAC
      * indicator where it does not — the components are computed off AEROMET's
@@ -63,11 +52,9 @@ final readonly class ReplyButton
      */
     public static function runwayWind(string $code): self
     {
-        return new self(
-            contentSid: (string) config('services.twilio.content_sid_pista'),
-            payloadValue: $code,
-            fallbackHint: "_Respondeme «viento en pista {$code}» y te paso el componente en cada cabecera._",
-        );
+        return new self([
+            ['id' => "pista:{$code}", 'title' => '🛬 Viento en pista'],
+        ]);
     }
 
     /**
@@ -79,11 +66,9 @@ final readonly class ReplyButton
      */
     public static function unsubscribe(string $icaoCode): self
     {
-        return new self(
-            contentSid: (string) config('services.twilio.content_sid_alert'),
-            payloadValue: $icaoCode,
-            fallbackHint: "_Respondeme «baja {$icaoCode}» para dejar de recibir estos avisos._",
-        );
+        return new self([
+            ['id' => "unsub:{$icaoCode}", 'title' => '🔕 Dar de baja'],
+        ]);
     }
 
     /**
@@ -103,41 +88,21 @@ final readonly class ReplyButton
      */
     public static function aeromet(string $code, string $stationName, ?string $anacCode = null): self
     {
-        return new self(
-            contentSid: (string) config('services.twilio.content_sid_aeromet'),
-            payloadValue: $anacCode === null ? $code : "{$code}:{$anacCode}",
-            fallbackHint: "_Respondeme «aeromet {$stationName}» y te paso lo que tenga el SMN de esa estación._",
-        );
+        $payload = $anacCode === null ? $code : "{$code}:{$anacCode}";
+
+        return new self([
+            ['id' => "aeromet:{$payload}", 'title' => 'Consultar AEROMET'],
+        ]);
     }
 
     /**
-     * "Want anything else about this aerodrome?" — one button offering one of
-     * the other three topics.
+     * "Want anything else about this aerodrome?" — the other topics for the
+     * same aerodrome, minus the one just answered.
      *
-     * One template per topic already answered, because a quick-reply
-     * template's captions are fixed when it is registered: the only thing that
-     * varies at send time is the aerodrome, which rides in {{2}} and comes back
-     * inside whichever action id was tapped.
-     */
-    public static function menu(string $topic, string $code): self
-    {
-        return new self(
-            contentSid: (string) config("services.twilio.content_sid_menu_{$topic}"),
-            payloadValue: $code,
-            fallbackHint: self::menuHint($topic, $code),
-        );
-    }
-
-    /**
-     * The topics each menu offers, in a fixed order — NOTAM, METAR, TAF,
-     * crepúsculo, minus the one just answered. Only the written fallback
-     * reads this; the captions themselves live in whatsapp:content-templates,
-     * because they are baked into the template and cannot be changed from
-     * here.
-     *
-     * PRONAREA is deliberately not in here: it is not offered as a
-     * quick-reply action, by design, so it never appears as an offer and has
-     * no menu of its own.
+     * PRONAREA is deliberately absent: it is not offered as a quick-reply
+     * action, by design. Crepúsculo is the one left out of the ficha's menu,
+     * because WhatsApp renders three and it is the least likely next question
+     * after "where is this place".
      *
      * @var array<string, array<int, string>>
      */
@@ -149,36 +114,27 @@ final readonly class ReplyButton
         'info' => ['notam', 'metar', 'taf'],
     ];
 
-    protected static function menuHint(string $topic, string $code): string
-    {
-        $commands = array_map(fn (string $offer) => "«{$offer} {$code}»", self::MENU_OFFERS[$topic]);
-        $last = array_pop($commands);
-
-        return '_También puedo pasarte '.implode(', ', $commands)." o {$last}._";
-    }
-
     /**
-     * Whether the template this button needs has actually been registered.
-     * Blank means the account has not run whatsapp:content-templates yet, and
-     * the message goes out as text.
+     * The caption each topic is offered under. Twenty characters is WhatsApp's
+     * ceiling, and "🌅 Salida/Puesta sol" is the one that sits closest to it.
+     *
+     * @var array<string, string>
      */
-    public function isAvailable(): bool
-    {
-        return $this->contentSid !== '';
-    }
+    protected const MENU_TITLES = [
+        'notam' => '✈️ NOTAMs',
+        'metar' => '🌦️ METAR',
+        'taf' => '🔭 TAF',
+        'crepusculo' => '🌅 Salida/Puesta sol',
+    ];
 
-    /**
-     * The template substitutions for one send: the message body, then the
-     * aerodrome the button acts on.
-     *
-     * Numeric keys, because that is what PHP stores whatever they are written
-     * as — and json_encode turns them back into the "1"/"2" strings Twilio's
-     * ContentVariables expects.
-     *
-     * @return array<int, string>
-     */
-    public function variables(string $body): array
+    public static function menu(string $topic, string $code): self
     {
-        return [1 => $body, 2 => $this->payloadValue];
+        return new self(array_map(
+            fn (string $offer) => [
+                'id' => "ask:{$offer}:{$code}",
+                'title' => self::MENU_TITLES[$offer],
+            ],
+            self::MENU_OFFERS[$topic],
+        ));
     }
 }

@@ -320,8 +320,7 @@ it('offers to check AEROMET under a metar that came back empty', function () {
     $reply = bot()->reply('metar junin');
 
     expect($reply->button)->not->toBeNull()
-        ->and($reply->button->contentSid)->toBe('HXaeromet')
-        ->and($reply->button->payloadValue)->toBe('87548:NIN');
+        ->and(buttonIds($reply->button))->toBe(['aeromet:87548:NIN']);
 });
 
 /**
@@ -587,7 +586,6 @@ it('warns when serving a stale bulletin instead of failing outright', function (
 it('never offers a follow-up menu for a pronarea answer', function () {
     fakeAnac();
     fakePronarea();
-    withButtonTemplates();
 
     expect(bot()->reply('pronarea EZE', PHONE)->menu)->toBeNull();
 });
@@ -684,7 +682,6 @@ it('warns when serving a stale aeromet observation instead of failing outright',
  */
 it('never offers a follow-up menu for an aeromet answer', function () {
     fakeAeromet();
-    withButtonTemplates();
 
     expect(bot()->reply('aeromet junin', PHONE)->menu)->toBeNull();
 });
@@ -720,8 +717,7 @@ it('offers the watch button under an observation', function () {
     $reply = bot()->reply('metar EZE', PHONE);
 
     expect($reply->button)->not->toBeNull()
-        ->and($reply->button->contentSid)->toBe('HXtest')
-        ->and($reply->button->payloadValue)->toBe('SAEZ');
+        ->and(buttonIds($reply->button))->toBe(['sub:SAEZ:12', 'pista:SAEZ']);
 });
 
 /**
@@ -756,8 +752,7 @@ it('does not offer a watch that is already running', function () {
 
     $reply = bot()->reply('metar EZE', PHONE);
 
-    expect($reply->button->contentSid)->toBe('HXpista')
-        ->and($reply->button->payloadValue)->toBe('SAEZ')
+    expect(buttonIds($reply->button))->toBe(['pista:SAEZ'])
         ->and(implode(' ', $reply->messages))->toContain('Ya te estoy avisando');
 });
 
@@ -1079,8 +1074,7 @@ it('builds a change alert with what changed above the report', function () {
         // Decoded in Spanish under the raw report, like every other answer.
         ->toContain('Qué dice')
         ->toContain('Alerta vigente hasta el 28/02 02:00 UTC')
-        ->and($reply->button?->contentSid)->toBe('HXalert')
-        ->and($reply->button?->payloadValue)->toBe('SAEZ');
+        ->and(buttonIds($reply->button))->toBe(['unsub:SAEZ']);
 });
 
 /**
@@ -1263,56 +1257,45 @@ it('still answers NOTAMs for a city that also has sun data', function () {
 |--------------------------------------------------------------------------
 |
 | After answering about an aerodrome, the bot offers the other three topics
-| as a second, short message with its own button — never merged onto the
-| answer itself (the METAR already spends its own button on the watch
-| offer), and never sent at all without a registered template for it.
+| as a second, short message with its own buttons — never merged onto the
+| answer itself, because WhatsApp renders three per message and the METAR
+| already spends its own on the watch and runway offers.
 |
 */
 
-it('offers the other topics after answering about an aerodrome', function (string $message, string $sid) {
+it('offers the other topics after answering about an aerodrome', function (string $message, array $offers) {
     fakeAnac();
     fakeMetar();
     fakeTaf();
-    withButtonTemplates();
 
     $reply = bot()->reply($message, PHONE);
 
     expect($reply->menu)->not->toBeNull()
-        ->and($reply->menu->button->contentSid)->toBe($sid)
-        ->and($reply->menu->button->payloadValue)->toBe('SAEZ')
+        ->and(buttonIds($reply->menu->button))->toBe($offers)
         ->and($reply->menu->body)->toContain('EZEIZA');
 })->with([
-    'notam' => ['notams EZE', 'HXmenunotam'],
-    'metar' => ['metar EZE', 'HXmenumetar'],
-    'taf' => ['taf EZE', 'HXmenutaf'],
+    'notam' => ['notams EZE', ['ask:metar:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']],
+    'metar' => ['metar EZE', ['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']],
+    'taf' => ['taf EZE', ['ask:notam:SAEZ', 'ask:metar:SAEZ', 'ask:crepusculo:SAEZ']],
 ]);
 
 it('offers both the watch and the menu under an observation', function () {
     fakeMetar();
-    withButtonTemplates();
 
     $reply = bot()->reply('metar EZE', PHONE);
 
-    expect($reply->button?->contentSid)->toBe('HXsub')
-        ->and($reply->menu?->button->contentSid)->toBe('HXmenumetar');
-});
-
-it('does not offer a menu when no template is registered', function () {
-    fakeAnac();
-
-    expect(bot()->reply('notams EZE', PHONE)->menu)->toBeNull();
+    expect(buttonIds($reply->button))->toBe(['sub:SAEZ:12', 'pista:SAEZ'])
+        ->and(buttonIds($reply->menu?->button))->toBe(['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']);
 });
 
 it('does not offer a menu off-channel', function () {
     fakeAnac();
-    withButtonTemplates();
 
     expect(bot()->reply('notams EZE')->menu)->toBeNull();
 });
 
 it('does not offer a menu with a subscription, a listing or an alert', function () {
     fakeMetar();
-    withButtonTemplates();
 
     expect(bot()->reply('avisame EZE', PHONE)->menu)->toBeNull()
         ->and(bot()->reply('', PHONE, 'sub:SAEZ:12')->menu)->toBeNull()
@@ -1332,7 +1315,6 @@ it('does not offer a menu with a subscription, a listing or an alert', function 
 });
 
 it('does not offer a menu when it could not answer', function () {
-    withButtonTemplates();
 
     fakeAnac(Http::response('down', 503));
     expect(bot()->reply('notams EZE', PHONE)->menu)->toBeNull();
@@ -1351,7 +1333,6 @@ it('does not offer a menu when it could not answer', function () {
 
 it('does not offer a menu with the help text or a disambiguation', function () {
     fakeAnac();
-    withButtonTemplates();
 
     foreach (['TWA', 'TWB'] as $code) {
         Airport::create(['anac_code' => $code, 'name' => 'VILLA ZURUMBAMBA', 'access' => 'publico']);
@@ -1382,28 +1363,26 @@ it('answers a tapped menu button without any keyword matching', function (string
 
 it('keeps offering the other topics after a tapped one', function () {
     fakeAnac();
-    withButtonTemplates();
 
     $reply = bot()->reply('✈️ NOTAMs', PHONE, 'ask:notam:SAEZ');
 
-    expect($reply->menu?->button->contentSid)->toBe('HXmenunotam');
+    expect(buttonIds($reply->menu?->button))->toBe(['ask:metar:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']);
 });
 
 it('offers the watch again under a metar reached by tapping', function () {
     fakeMetar();
-    withButtonTemplates();
 
     $reply = bot()->reply('🌦️ METAR', PHONE, 'ask:metar:SAEZ');
 
-    expect($reply->button?->contentSid)->toBe('HXsub')
-        ->and($reply->menu?->button->contentSid)->toBe('HXmenumetar');
+    expect(buttonIds($reply->button))->toBe(['sub:SAEZ:12', 'pista:SAEZ'])
+        ->and(buttonIds($reply->menu?->button))->toBe(['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']);
 });
 
 it('carries an aerodrome without an icao code in the menu payload', function () {
     fakeAnac();
-    withButtonTemplates();
 
-    expect(bot()->reply('notams alta gracia', PHONE)->menu?->button->payloadValue)->toBe('AGR');
+    expect(buttonIds(bot()->reply('notams alta gracia', PHONE)->menu?->button))
+        ->toBe(['ask:metar:AGR', 'ask:taf:AGR', 'ask:crepusculo:AGR']);
 });
 
 it('answers honestly when a tapped topic has nothing for that aerodrome', function () {
@@ -1450,7 +1429,6 @@ it('does not shrink the answer to fit the menu', function () {
 
     $withoutTemplate = bot()->reply('taf aeroparque', PHONE)->messages;
 
-    withButtonTemplates();
     $withTemplate = bot()->reply('taf aeroparque', PHONE)->messages;
 
     expect($withTemplate)->toBe($withoutTemplate);
@@ -1463,13 +1441,11 @@ it('does not shrink the answer to fit the menu', function () {
 it('offers the menu for a sun answer that names an aerodrome', function (string $message) {
     Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
     fakeShnSun();
-    withButtonTemplates();
 
     $reply = bot()->reply($message, PHONE);
 
     expect($reply->menu)->not->toBeNull()
-        ->and($reply->menu->button->contentSid)->toBe('HXmenusol')
-        ->and($reply->menu->button->payloadValue)->toBe('SAZR');
+        ->and(buttonIds($reply->menu->button))->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'ask:taf:SAZR']);
 
     Carbon::setTestNow();
 })->with([
@@ -1486,7 +1462,6 @@ it('offers the menu for a sun answer that names an aerodrome', function (string 
 it('offers no menu when the aerodrome named does not serve the city answered', function () {
     Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
     fakeShnSun();
-    withButtonTemplates();
 
     $reply = bot()->reply('crepusculo base esperanza', PHONE);
 
@@ -1773,8 +1748,7 @@ it('offers AEROMET under an aerodrome that will never have a METAR', function ()
     $reply = bot()->reply('metar coronel suarez la pista');
 
     expect($reply->messages[0])->toContain('no tiene código OACI')
-        ->and($reply->button->contentSid)->toBe('HXaeromet')
-        ->and($reply->button->payloadValue)->toBe('87637:CLP');
+        ->and(buttonIds($reply->button))->toBe(['aeromet:87637:CLP']);
 });
 
 /**
@@ -1792,8 +1766,7 @@ it('offers AEROMET under an aerodrome the registry, not the name, places in a co
     $reply = bot()->reply('metar elp');
 
     expect($reply->messages[0])->toContain('no tiene código OACI')
-        ->and($reply->button->contentSid)->toBe('HXaeromet')
-        ->and($reply->button->payloadValue)->toBe('87623:ELP');
+        ->and(buttonIds($reply->button))->toBe(['aeromet:87623:ELP']);
 });
 
 /**
@@ -1811,8 +1784,7 @@ it('offers the runway components for the aerodrome the AEROMET offer came from',
 
     expect($service->lastContext()->anacCode)->toBe('CLP')
         ->and($reply->messages[0])->toContain('AEROMET CORONEL SUAREZ')
-        ->and($reply->button->contentSid)->toBe('HXpista')
-        ->and($reply->button->payloadValue)->toBe('CLP');
+        ->and(buttonIds($reply->button))->toBe(['pista:CLP']);
 });
 
 it('computes the runway components of an aerodrome with no OACI code off the AEROMET wind', function () {
@@ -1874,7 +1846,7 @@ it('offers AEROMET instead when it has no runway headings for an aerodrome with 
     $reply = bot()->reply('viento en pista', PHONE, 'pista:CLP');
 
     expect($reply->messages[0])->toContain('No tengo los rumbos de pista')
-        ->and($reply->button->payloadValue)->toBe('87637:CLP');
+        ->and(buttonIds($reply->button))->toBe(['aeromet:87637:CLP']);
 });
 
 /**
@@ -1889,8 +1861,7 @@ it('offers the runway components under an aeromet answer reached by typing', fun
 
     $reply = bot()->reply('aeromet junin', PHONE);
 
-    expect($reply->button->contentSid)->toBe('HXpista')
-        ->and($reply->button->payloadValue)->toBe('SAAJ');
+    expect(buttonIds($reply->button))->toBe(['pista:SAAJ']);
 });
 
 /**
@@ -1963,8 +1934,7 @@ it('offers the runway wind under a notam reply', function () {
 
     $reply = bot()->reply('notams aeroparque', PHONE);
 
-    expect($reply->button->contentSid)->toBe('HXpista')
-        ->and($reply->button->payloadValue)->toBe('SABE');
+    expect(buttonIds($reply->button))->toBe(['pista:SABE']);
 });
 
 /**
@@ -1987,7 +1957,7 @@ it('offers the runway wind even when there are no notams to report', function ()
     $reply = bot()->reply('notams aeroparque', PHONE);
 
     expect($reply->messages[0])->toContain('No hay NOTAM activos')
-        ->and($reply->button->contentSid)->toBe('HXpista');
+        ->and(buttonIds($reply->button))->toBe(['pista:SABE']);
 });
 
 /**
@@ -1997,14 +1967,16 @@ it('offers the runway wind even when there are no notams to report', function ()
 it('puts the runway-wind button on the last notam message only', function () {
     fakeAnac();
     seedAeroparqueRunways();
-    config(['services.twilio.content_sid_pista' => 'HXpista']);
 
     $outbound = bot()->reply('notams aeroparque', PHONE)->outbound();
 
-    expect(count($outbound))->toBe(3)
+    // Three NOTAM messages plus the follow-up menu, which is a message of its
+    // own and carries its own buttons.
+    expect(count($outbound))->toBe(4)
         ->and($outbound[0][1])->toBeNull()
         ->and($outbound[1][1])->toBeNull()
-        ->and($outbound[2][1])->not->toBeNull();
+        ->and(buttonIds($outbound[2][1]))->toBe(['pista:SABE'])
+        ->and(buttonIds($outbound[3][1]))->toBe(['ask:metar:SABE', 'ask:taf:SABE', 'ask:crepusculo:SABE']);
 });
 
 /**
@@ -2379,13 +2351,11 @@ it('does not swallow the questions its own keywords appear inside', function (st
 ]);
 
 it('offers the other three topics under the ficha', function () {
-    withButtonTemplates();
     seedSantaRosaFicha();
 
     $menu = bot()->reply('osa', PHONE)->menu;
 
-    expect($menu?->button->contentSid)->toBe('HXmenuinfo')
-        ->and($menu?->button->payloadValue)->toBe('SAZR');
+    expect(buttonIds($menu->button))->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'ask:taf:SAZR']);
 });
 
 it('answers a tapped ficha button without any text matching', function () {
@@ -2420,8 +2390,7 @@ it('offers the runway wind under the ficha', function () {
 
     $reply = bot()->reply('osa', PHONE);
 
-    expect($reply->button?->contentSid)->toBe('HXpista')
-        ->and($reply->button?->payloadValue)->toBe('SAZR');
+    expect(buttonIds($reply->button))->toBe(['pista:SAZR']);
 });
 
 /**

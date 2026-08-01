@@ -13,8 +13,7 @@
         "laravel/tinker": "^3.0",
         "smalot/pdfparser": "^2.12",
         "symfony/css-selector": "^7.0 || ^8.0",
-        "symfony/dom-crawler": "^7.0 || ^8.0",
-        "twilio/sdk": "^8.11"
+        "symfony/dom-crawler": "^7.0 || ^8.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

@@ -69,7 +69,7 @@ class MessageController extends Controller
             ->when(
                 filled($filters['phone'] ?? null),
                 // Matched loosely so the number can be pasted with or without
-                // Twilio's "whatsapp:" prefix and the country code.
+                // the "whatsapp:" prefix and the country code.
                 fn ($query) => $query->where('phone', 'like', '%'.$filters['phone'].'%'),
             )
             ->when(

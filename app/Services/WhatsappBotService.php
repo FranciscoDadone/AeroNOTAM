@@ -45,21 +45,21 @@ use Illuminate\Support\Str;
 class WhatsappBotService
 {
     /**
-     * Twilio hard-rejects any WhatsApp message body over 1600 characters.
-     * We stay under that with margin to absorb multi-byte emoji and the
-     * "(i/N)" prefix added when a reply needs to be split into several
-     * messages.
+     * WhatsApp accepts a text body of up to 4096 characters, so this is a
+     * decision about what is readable in a chat rather than a limit imposed on
+     * us. It also leaves margin for multi-byte emoji and the "(i/N)" prefix
+     * added when a reply needs to be split into several messages.
      */
     protected const MAX_MESSAGE_LENGTH = 1500;
 
     /**
-     * A message that carries a button is not free text — it is a content
-     * template, and WhatsApp caps a template body at 1024 characters. When a
+     * A message that carries buttons is an interactive one, and WhatsApp caps
+     * its body at 1024 characters — shorter than a plain message's. When a
      * button is going to be offered, the whole reply is split to this smaller
      * budget rather than only its last part: predicting which part ends up last
      * is not worth the one extra message it would occasionally save.
      */
-    protected const MAX_TEMPLATE_BODY_LENGTH = 950;
+    protected const MAX_INTERACTIVE_BODY_LENGTH = 950;
 
     /**
      * Words that mean the user is asking about current weather rather than
@@ -1301,11 +1301,11 @@ class WhatsappBotService
     {
         $header = ($airport->kind === 'HLP' ? '🚁' : '🛬')." *{$airport->name}*";
 
-        // A message that carries a button is a content template, and WhatsApp
+        // A message that carries buttons is an interactive one, and WhatsApp
         // caps those far shorter than a plain one. It bites here more than
         // anywhere: an aerodrome with three runways and a paragraph of opening
         // hours is a long ficha.
-        $budget = ($button === null ? self::MAX_MESSAGE_LENGTH : self::MAX_TEMPLATE_BODY_LENGTH)
+        $budget = ($button === null ? self::MAX_MESSAGE_LENGTH : self::MAX_INTERACTIVE_BODY_LENGTH)
             - mb_strlen($header) - 12;
 
         $lines = ['_'.$this->airportSubtitle($airport).'_'];
@@ -1729,15 +1729,9 @@ class WhatsappBotService
             return null;
         }
 
-        $button = ReplyButton::menu($topic, $code);
-
-        if (! $button->isAvailable()) {
-            return null;
-        }
-
         $name = $this->airports->nameFor($indicator) ?? $indicator;
 
-        return new ReplyMenu("¿Querés algo más de *{$name}*?", $button);
+        return new ReplyMenu("¿Querés algo más de *{$name}*?", ReplyButton::menu($topic, $code));
     }
 
     protected function tafReply(string $indicator, ?string $from): WhatsappReply
@@ -1981,7 +1975,7 @@ class WhatsappBotService
 
         $header = "🌡️ *AEROMET {$stationName}*";
         $total = count($observations);
-        $budget = ($button === null ? self::MAX_MESSAGE_LENGTH : self::MAX_TEMPLATE_BODY_LENGTH)
+        $budget = ($button === null ? self::MAX_MESSAGE_LENGTH : self::MAX_INTERACTIVE_BODY_LENGTH)
             - mb_strlen($header) - 12;
 
         $parts = [];
@@ -2299,7 +2293,7 @@ class WhatsappBotService
         $header = "🌦️ *{$airportName}* ({$icao})";
         $total = count($metars);
         $credit = $this->sourceCredit($metars[0]->isRelayed());
-        $budget = ($button === null ? self::MAX_MESSAGE_LENGTH : self::MAX_TEMPLATE_BODY_LENGTH)
+        $budget = ($button === null ? self::MAX_MESSAGE_LENGTH : self::MAX_INTERACTIVE_BODY_LENGTH)
             - mb_strlen($header) - 12;
 
         $parts = [];
@@ -2394,7 +2388,7 @@ class WhatsappBotService
 
     /**
      * One WhatsApp message per NOTAM — or several, when a single NOTAM's text
-     * exceeds Twilio's per-message limit. Each carries an "(i/N)" prefix so a
+     * exceeds the per-message budget. Each carries an "(i/N)" prefix so a
      * multi-part reply reads as a clearly numbered sequence in the chat.
      *
      * A long NOTAM is split rather than truncated: dropping the tail of an
@@ -2428,9 +2422,9 @@ class WhatsappBotService
 
         // Reserve room for the header and the widest plausible "(99/99) "
         // prefix, so the assembled message still fits once both are added.
-        // A message that carries a button is a content template, and WhatsApp
+        // A message that carries buttons is an interactive one, and WhatsApp
         // caps those far shorter than a plain one.
-        $budget = ($button === null ? self::MAX_MESSAGE_LENGTH : self::MAX_TEMPLATE_BODY_LENGTH)
+        $budget = ($button === null ? self::MAX_MESSAGE_LENGTH : self::MAX_INTERACTIVE_BODY_LENGTH)
             - mb_strlen($header) - 12;
 
         $parts = [];
@@ -2623,7 +2617,7 @@ class WhatsappBotService
         $enriched = $this->metarEnricher->enrich([$metar])[0] ?? $metar;
 
         $header = "⚠️ *{$name}* ({$icao}) — cambió el clima";
-        $budget = self::MAX_TEMPLATE_BODY_LENGTH - mb_strlen($header) - 12;
+        $budget = self::MAX_INTERACTIVE_BODY_LENGTH - mb_strlen($header) - 12;
 
         $lines = ['🔄 *Qué cambió*'];
 

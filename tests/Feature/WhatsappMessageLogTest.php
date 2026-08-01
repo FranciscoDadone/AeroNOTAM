@@ -8,38 +8,27 @@ use App\Services\WhatsappBotService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
-use Illuminate\Testing\TestResponse;
 use Tests\Support\FakeWhatsappSender;
-use Twilio\Security\RequestValidator;
 
-/**
- * @param  array<string, string>  $payload
- */
-function postInbound(array $payload): TestResponse
-{
-    config(['services.twilio.token' => 'test-auth-token']);
-
-    $url = url('/whatsapp/webhook');
-    $signature = (new RequestValidator('test-auth-token'))->computeSignature($url, $payload);
-
-    return test()->withHeaders(['X-Twilio-Signature' => $signature])->post('/whatsapp/webhook', $payload);
-}
+beforeEach(function () {
+    config(['services.whatsapp.app_secret' => 'test-app-secret']);
+});
 
 it('logs the incoming message with the phone number and the profile name', function () {
     Queue::fake();
 
-    postInbound([
-        'From' => 'whatsapp:+5491133334444',
-        'Body' => 'notams ezeiza',
-        'MessageSid' => 'SM123',
-        'ProfileName' => 'Ana Pilot',
-    ])->assertOk();
+    postSigned(metaPayload(
+        from: '5491133334444',
+        text: 'notams ezeiza',
+        messageId: 'wamid.ABC123',
+        profileName: 'Ana Pilot',
+    ))->assertOk();
 
     $logged = WhatsappMessage::sole();
 
     expect($logged->phone)->toBe('whatsapp:+5491133334444')
         ->and($logged->profile_name)->toBe('Ana Pilot')
-        ->and($logged->message_sid)->toBe('SM123')
+        ->and($logged->message_sid)->toBe('wamid.ABC123')
         ->and($logged->body)->toBe('notams ezeiza')
         ->and($logged->status)->toBe(WhatsappMessage::STATUS_PENDING);
 });
@@ -51,16 +40,16 @@ it('logs the incoming message with the phone number and the profile name', funct
 it('logs a message from someone with no profile name', function () {
     Queue::fake();
 
-    postInbound(['From' => 'whatsapp:+5491133334444', 'Body' => 'eze'])->assertOk();
+    postSigned(metaPayload(from: '5491133334444', text: 'eze'))->assertOk();
 
     expect(WhatsappMessage::sole()->profile_name)->toBeNull();
 });
 
-it('logs nothing for a request that is not from twilio', function () {
+it('logs nothing for a request that is not from meta', function () {
     Queue::fake();
 
-    $this->withHeaders(['X-Twilio-Signature' => 'obviously-wrong'])
-        ->post('/whatsapp/webhook', ['From' => 'whatsapp:+5491111111111', 'Body' => 'eze'])
+    $this->withHeaders(['X-Hub-Signature-256' => 'sha256=obviouslywrong'])
+        ->postJson('/whatsapp/webhook', metaPayload())
         ->assertForbidden();
 
     expect(WhatsappMessage::count())->toBe(0);
@@ -88,7 +77,8 @@ it('records the reply, the topic and the aerodrome once the job answers', functi
         ->and($logged->topic)->toBe('notam')
         ->and($logged->anac_code)->toBe('AER')
         ->and($logged->icao_code)->toBe('SABE')
-        ->and($logged->reply)->toHaveCount(3)
+        // Three NOTAM messages plus the follow-up menu.
+        ->and($logged->reply)->toHaveCount(4)
         ->and($logged->reply[0])->toContain('A2187/2026')
         ->and($logged->duration_ms)->toBeGreaterThanOrEqual(0);
 });

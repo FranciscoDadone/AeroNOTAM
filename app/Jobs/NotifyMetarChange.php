@@ -8,6 +8,7 @@ use App\Jobs\Concerns\DeliversWhatsappReply;
 use App\Services\WhatsappBotService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -16,7 +17,7 @@ use Throwable;
  *
  * Split out from the watcher command on purpose: the round that finds the
  * changes talks to the SMN and must not be held up — or worse, aborted midway —
- * by Twilio being slow for one recipient. Each alert retries on its own.
+ * by WhatsApp being slow for one recipient. Each alert retries on its own.
  */
 class NotifyMetarChange implements ShouldQueue
 {
@@ -45,6 +46,14 @@ class NotifyMetarChange implements ShouldQueue
         protected string $expiryLabel,
     ) {}
 
+    /**
+     * WhatsApp's answer for a message sent outside the 24-hour window the
+     * user's own message opened. Subscriptions are capped at that same 24 hours
+     * (services.metar.watch.max_ttl) precisely so this cannot happen — but when
+     * it does, the window is shut and no amount of retrying will reopen it.
+     */
+    protected const OUT_OF_WINDOW = 131047;
+
     public function handle(WhatsappBotService $bot, WhatsappSender $sender): void
     {
         $reply = $bot->changeAlert(
@@ -54,7 +63,18 @@ class NotifyMetarChange implements ShouldQueue
             $this->expiryLabel,
         );
 
-        $this->deliver($sender, $this->phone, $reply);
+        try {
+            $this->deliver($sender, $this->phone, $reply);
+        } catch (RequestException $e) {
+            if ((int) $e->response->json('error.code') !== self::OUT_OF_WINDOW) {
+                throw $e;
+            }
+
+            Log::warning('El aviso quedó fuera de la ventana de 24 h y no se entregó.', [
+                'phone' => $this->phone,
+                'anac_code' => $this->anacCode,
+            ]);
+        }
     }
 
     public function failed(?Throwable $e): void

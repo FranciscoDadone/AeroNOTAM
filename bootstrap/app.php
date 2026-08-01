@@ -14,9 +14,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Needed so Request::fullUrl() reports the public https:// ngrok/proxy
-        // URL (not the internal http:// one) — otherwise Twilio's webhook
-        // signature never matches and every request gets rejected with 403.
+        // So the app sees the public https:// URL and client IP behind the
+        // proxy or tunnel it runs under, rather than the internal ones.
         $middleware->trustProxies(at: '*');
 
         $middleware->validateCsrfTokens(except: [

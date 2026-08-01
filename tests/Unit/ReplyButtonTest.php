@@ -4,6 +4,12 @@ use App\DataObjects\AipDocument;
 use App\DataObjects\ReplyButton;
 
 /**
+ * WhatsappBotService::BUTTON_ASK, written out. Every row the menu emits has to
+ * match it, whichever topic the menu follows.
+ */
+const MENU_GRAMMAR = '/^ask:(notam|metar|taf|carta|crepusculo|info):[A-Z]{3,4}$/';
+
+/**
  * @param  array<int, string>  $titles
  * @return array<int, AipDocument>
  */
@@ -46,11 +52,12 @@ it('writes every id in the grammar the bot parses taps with', function (ReplyBut
     'unsubscribe' => [fn () => ReplyButton::unsubscribe('SAEZ'), '/^unsub:[A-Z]{4}$/'],
     'aeromet' => [fn () => ReplyButton::aeromet('87548', 'JUNÍN'), '/^aeromet:\d{5}$/'],
     'aeromet with aerodrome' => [fn () => ReplyButton::aeromet('87548', 'JUNÍN', 'NIN'), '/^aeromet:\d{5}:[A-Z]{3,4}$/'],
-    'menu after notam' => [fn () => ReplyButton::menu('notam', 'SAEZ'), '/^ask:(notam|metar|taf|crepusculo|info):[A-Z]{3,4}$/'],
-    'menu after metar' => [fn () => ReplyButton::menu('metar', 'SAEZ'), '/^ask:(notam|metar|taf|crepusculo|info):[A-Z]{3,4}$/'],
-    'menu after taf' => [fn () => ReplyButton::menu('taf', 'SAEZ'), '/^ask:(notam|metar|taf|crepusculo|info):[A-Z]{3,4}$/'],
-    'menu after crepusculo' => [fn () => ReplyButton::menu('crepusculo', 'SAEZ'), '/^ask:(notam|metar|taf|crepusculo|info):[A-Z]{3,4}$/'],
-    'menu after the ficha' => [fn () => ReplyButton::menu('info', 'AGR'), '/^ask:(notam|metar|taf|crepusculo|info):[A-Z]{3,4}$/'],
+    'menu after notam' => [fn () => ReplyButton::menu('notam', 'SAEZ'), MENU_GRAMMAR],
+    'menu after metar' => [fn () => ReplyButton::menu('metar', 'SAEZ'), MENU_GRAMMAR],
+    'menu after taf' => [fn () => ReplyButton::menu('taf', 'SAEZ'), MENU_GRAMMAR],
+    'menu after a chart' => [fn () => ReplyButton::menu('carta', 'SAEZ'), MENU_GRAMMAR],
+    'menu after crepusculo' => [fn () => ReplyButton::menu('crepusculo', 'SAEZ'), MENU_GRAMMAR],
+    'menu after the ficha' => [fn () => ReplyButton::menu('info', 'AGR', withCharts: false), MENU_GRAMMAR],
     'AIP documents' => [fn () => ReplyButton::documents(manyAipDocuments(4)), '/^doc:[A-Z]{4}:\d{1,2}$/'],
 ]);
 
@@ -68,10 +75,9 @@ it('points a document row at its position in the listing', function () {
  * WhatsApp draws ten rows and no more — past that it draws nothing at all,
  * which would take the whole offer down with it.
  */
-it('stays inside what a list sheet will render', function () {
-    $button = ReplyButton::documents(manyAipDocuments(14));
-
-    expect($button->buttons)->toHaveCount(10)
+it('stays inside what a list sheet will render', function (ReplyButton $button) {
+    expect(count($button->buttons))->toBeGreaterThan(0)
+        ->and(count($button->buttons))->toBeLessThanOrEqual(10)
         ->and(mb_strlen((string) $button->listLabel))->toBeLessThanOrEqual(20);
 
     foreach ($button->buttons as $row) {
@@ -79,6 +85,22 @@ it('stays inside what a list sheet will render', function () {
             ->and(mb_strlen($row['description']))->toBeLessThanOrEqual(72)
             ->and(mb_strlen($row['id']))->toBeLessThanOrEqual(200);
     }
+})->with([
+    'more documents than rows' => [fn () => ReplyButton::documents(manyAipDocuments(14))],
+    'menu after notam' => [fn () => ReplyButton::menu('notam', 'SAEZ')],
+    'menu after metar' => [fn () => ReplyButton::menu('metar', 'SAEZ')],
+    'menu after taf' => [fn () => ReplyButton::menu('taf', 'SAEZ')],
+    'menu after a chart' => [fn () => ReplyButton::menu('carta', 'SAEZ')],
+    'menu after crepusculo' => [fn () => ReplyButton::menu('crepusculo', 'SAEZ')],
+    'menu after the ficha' => [fn () => ReplyButton::menu('info', 'SAEZ')],
+    'menu without an icao' => [fn () => ReplyButton::menu('notam', 'AGR', withCharts: false)],
+]);
+
+/**
+ * Fourteen documents is past the ceiling; the tail is what gets dropped.
+ */
+it('drops the documents past the tenth row', function () {
+    expect(ReplyButton::documents(manyAipDocuments(14))->buttons)->toHaveCount(10);
 });
 
 /**
@@ -113,11 +135,6 @@ it('stays inside what WhatsApp will render', function (ReplyButton $button) {
     'runway wind' => [fn () => ReplyButton::runwayWind('SAEZ')],
     'unsubscribe' => [fn () => ReplyButton::unsubscribe('SAEZ')],
     'aeromet' => [fn () => ReplyButton::aeromet('87548', 'JUNÍN', 'NIN')],
-    'menu after notam' => [fn () => ReplyButton::menu('notam', 'SAEZ')],
-    'menu after metar' => [fn () => ReplyButton::menu('metar', 'SAEZ')],
-    'menu after taf' => [fn () => ReplyButton::menu('taf', 'SAEZ')],
-    'menu after crepusculo' => [fn () => ReplyButton::menu('crepusculo', 'SAEZ')],
-    'menu after the ficha' => [fn () => ReplyButton::menu('info', 'SAEZ')],
 ]);
 
 /**
@@ -127,4 +144,33 @@ it('never re-offers the topic it follows', function (string $topic) {
     foreach (array_column(ReplyButton::menu($topic, 'SAEZ')->buttons, 'id') as $id) {
         expect($id)->not->toStartWith("ask:{$topic}:");
     }
-})->with(['notam', 'metar', 'taf', 'crepusculo']);
+})->with(['notam', 'metar', 'taf', 'carta', 'crepusculo', 'info']);
+
+/**
+ * The menu is drawn as a sheet rather than buttons, which is the whole reason
+ * every topic fits: three buttons could never hold six.
+ */
+it('draws the follow-up menu as a list', function () {
+    $menu = ReplyButton::menu('info', 'SAEZ');
+
+    expect($menu->listLabel)->not->toBeNull()
+        ->and(array_column($menu->buttons, 'id'))->toBe([
+            'ask:notam:SAEZ',
+            'ask:metar:SAEZ',
+            'ask:taf:SAEZ',
+            'ask:carta:SAEZ',
+            'ask:crepusculo:SAEZ',
+        ]);
+});
+
+/**
+ * The AIP indexes its documents by ICAO code and nothing else, so for an
+ * aerodrome without one the row would lead nowhere. Every other topic still
+ * answers fine — Alta Gracia has NOTAMs — so only that row goes.
+ */
+it('leaves the charts out for an aerodrome with no icao', function () {
+    $ids = array_column(ReplyButton::menu('info', 'AGR', withCharts: false)->buttons, 'id');
+
+    expect($ids)->not->toContain('ask:carta:AGR')
+        ->and($ids)->toContain('ask:notam:AGR');
+});

@@ -627,40 +627,64 @@ Nada en tiempo de ejecución ata los identificadores que se emiten con la
 gramática que los lee, así que eso lo cuida `tests/Unit/ReplyButtonTest.php`.
 
 **WhatsApp dibuja como mucho tres botones por mensaje**, y de ahí sale la forma
-que tiene todo esto. Los menús de seguimiento ya gastan los tres, así que la
-oferta **🛬 Viento en pista** viaja en el mensaje mismo, donde había lugar:
+que tiene todo esto. Sobre las respuestas mismas queda muy poco:
 
-- Bajo cada METAR van **dos**: 🔔 Avisarme 12 h y 🛬 Viento en pista.
-- Sólo el 🛬 va bajo el último mensaje de una respuesta de NOTAM, al pie de la
-  ficha, y bajo el METAR de un aeródromo al que el lector ya está suscripto —
-  ahí el de alta prometería algo que ya pasa.
+- Bajo cada METAR, **🔔 Avisarme 12 h** y nada más. Desaparece cuando ya hay un
+  aviso corriendo para ese aeródromo: un botón que promete algo que ya pasa,
+  al tocarlo, parece que falló. En su lugar va una línea de texto.
+- Bajo el último mensaje de una respuesta de NOTAM, **🛬 Viento en pista**, y
+  sólo si hay rumbos de pista cargados — un botón que lleva a _"no tengo los
+  rumbos de pista"_ es peor que ningún botón, y además un mensaje con botones
+  se parte al presupuesto más corto (1024 caracteres en vez de los 1500
+  habituales), que costaría mensajes de más para nada.
 
-Bajo los NOTAM y la ficha el botón se ofrece **sólo si hay rumbos de pista
-cargados**, al revés que bajo el METAR: ahí está solo, así que se manda
-únicamente cuando va a contestar algo. Un botón que lleva a _"no tengo los
-rumbos de pista"_ es peor que ningún botón, y además un mensaje con botones se
-parte al presupuesto más corto (1024 caracteres en vez de los 1500 habituales),
-que costaría mensajes de más para nada.
-
-Los menús de seguimiento ofrecen otros tres temas para el mismo aeródromo, sin
-repetir el que se acaba de contestar. El de la ficha es el que más se manda,
-porque la ficha es la respuesta por defecto: ofrece NOTAM, METAR y TAF, que es
-lo que alguien quiere saber justo después de enterarse de que el lugar existe.
-El menú es un mensaje aparte y no más botones sobre la respuesta, porque un
-mensaje dibuja un solo juego.
+El 🛬 **no** va bajo el METAR aunque sea ahí donde más se pregunta: vive en la
+hoja de opciones, que se ofrece en todas las respuestas del aeródromo y no sólo
+en esa. Tenerlo en los dos lados era el mismo ofrecimiento hecho dos veces en el
+mismo intercambio.
 
 **Cuando el conjunto no entra en tres, WhatsApp tiene otra forma**: un botón
 que abre una hoja de hasta **diez filas**, cada una con un título de 24
-caracteres y una descripción de 72. Es lo que usan los documentos de la AIP, que
-son rutinariamente más de tres. Para todo lo demás es la misma cosa —los mismos
-identificadores, la misma gramática, el mismo toque volviendo— sólo dibujada
-distinto: `ReplyButton` lo marca con `listLabel` y `DeliversWhatsappReply`
-elige el envío. La única diferencia real está del lado de Meta, que manda la
-fila tocada como `list_reply` en vez de `button_reply`; el webhook lee las dos.
+caracteres y una descripción de 72. Para todo lo demás es la misma cosa —los
+mismos identificadores, la misma gramática, el mismo toque volviendo— sólo
+dibujada distinto: `ReplyButton` lo marca con `listLabel` y
+`DeliversWhatsappReply` elige el envío. La única diferencia real está del lado
+de Meta, que manda la fila tocada como `list_reply` en vez de `button_reply`;
+el webhook lee las dos.
 
+Eso es lo que usan los documentos de la AIP, que son rutinariamente más de tres.
 Cada fila lleva el título de la AIP recortado a la parte que distingue un
 documento del de al lado — la AIP los escribe de lo general a lo específico,
 así que es el último tramo — y el título entero abajo, donde entra.
+
+**Y es lo que usa el menú de seguimiento**, que es un mensaje aparte y no más
+botones sobre la respuesta, porque un mensaje dibuja un solo juego. Ofrece los
+otros temas del mismo aeródromo sin repetir el que se acaba de contestar, y son
+seis: NOTAM, METAR, TAF, cartas de la AIP, crepúsculos y la ficha. Con tres
+botones había que elegir cuáles esconder, y las cartas quedaban afuera siempre
+—alcanzables sólo escribiendo _"carta de aproximación de Tandil"_, que es
+justamente lo que nadie adivina que puede pedir—, así que el menú pasó a ser
+una hoja y entran todos.
+
+Dos filas son condicionadas, y las dos por la misma razón: una fila que lleva a
+_"no tengo eso"_ es peor que ninguna. La de **cartas** sale sólo si el aeródromo
+tiene código OACI, porque la AIP indexa sus documentos por ese código y nada más
+(para Alta Gracia, AGR, no se dibuja). La de **viento en pista** sale sólo si hay
+rumbos cargados. Su identificador conserva su propia gramática —`pista:`, no
+`ask:`— y se arma reusando `runwayWindOffer()`, para que una acción no termine
+con dos nombres ni con dos lugares que deciden qué código va adentro.
+
+Esa fila sale en **todas** las respuestas del aeródromo, no sólo donde parecería
+más pertinente. Una hoja que hay que abrir para ver qué tiene no puede además
+cambiar de contenido según lo que se acabó de preguntar: si está bajo la ficha,
+tiene que estar también bajo el TAF.
+
+**La ficha lleva la hoja encima en vez de que la siga**: es la respuesta por
+defecto —todo lo que el bot no puede ubicar cae ahí—, así que es donde alguien
+llega sin haber preguntado nada todavía, y un segundo mensaje que sólo dice
+_"¿querés algo más?"_ es un mensaje de más para ver las opciones. Ahí el botón
+de viento en pista cede su lugar: un mensaje dibuja un solo juego de acciones,
+y la hoja es ese juego.
 
 Con SQLite, activá WAL para que el worker y el servidor web no se bloqueen
 mutuamente:

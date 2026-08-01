@@ -252,12 +252,13 @@ class WhatsappBotService
     protected const BUTTON_UNSUBSCRIBE = '/^unsub:([A-Z]{4})$/';
 
     /**
-     * A tap on the follow-up menu: the same five questions reply() itself can
+     * A tap on the follow-up menu: the same six questions reply() itself can
      * answer, with the guessing removed. {3,4} because not every ANAC
      * aerodrome has an ICAO code (Alta Gracia, AGR) and its NOTAM still answer
-     * fine without one.
+     * fine without one — carta is the exception, and the menu leaves that row
+     * out rather than letting it be tapped.
      */
-    protected const BUTTON_ASK = '/^ask:(notam|metar|taf|crepusculo|info):([A-Z]{3,4})$/';
+    protected const BUTTON_ASK = '/^ask:(notam|metar|taf|carta|crepusculo|info):([A-Z]{3,4})$/';
 
     /**
      * A tap on the "Consultar AEROMET" offer under an empty METAR. The WMO/OMM
@@ -432,6 +433,9 @@ class WhatsappBotService
             return match ($topic) {
                 'metar' => $this->metarReply($indicator, $from),
                 'taf' => $this->tafReply($indicator, $from),
+                // No message to read a kind of document out of, so the tap
+                // offers the whole listing rather than guessing at one.
+                'carta' => $this->cartaReply($indicator, ''),
                 'crepusculo' => $this->sunReplyFor($indicator, $from),
                 'info' => $this->infoReply($indicator, $from),
                 default => $this->notamReply($indicator, $from),
@@ -929,23 +933,20 @@ class WhatsappBotService
     }
 
     /**
-     * What goes under an observation: the buttons to offer, and the line of
-     * text that replaces the watch offer once a watch is already running.
+     * What goes under an observation: the button to offer, and the line of text
+     * that replaces it once a watch is already running.
      *
-     * Offering the watch button to someone who is already subscribed would be a
-     * promise about something already true — worse than useless, because
-     * tapping it would look like it had failed to change anything. The runway
-     * components are not like that: they answer a question about the report
-     * just sent, and stay on offer either way. So there are two templates, and
-     * which one is sent turns on whether the watch offer still has anything to
-     * say.
+     * Only the watch. The runway components used to ride here too, since a
+     * METAR is exactly where "which cabecera does this wind favour" gets asked
+     * — but they are now a row of the follow-up sheet, offered on every answer
+     * about the aerodrome rather than only this one, and having them in both
+     * places at once made the same offer twice in one exchange.
      *
-     * The runway button is offered without first checking that the aerodrome
-     * has runways on file — it cannot be, since the two actions live in one
-     * template and a template's buttons are fixed when it is registered. That
-     * is the same bargain the AEROMET offer makes: the tap is a next thing to
-     * try, and runwayWindReply() says so plainly when there is nothing behind
-     * it.
+     * Offering the watch to someone already subscribed would be a promise about
+     * something already true — worse than useless, because tapping it would
+     * look like it had failed to change anything. So when a watch is running
+     * there is nothing left to put under the report, and the line of text says
+     * what the button would have.
      *
      * @return array{0: ?ReplyButton, 1: ?string}
      */
@@ -963,7 +964,7 @@ class WhatsappBotService
 
         return $existing === null
             ? [ReplyButton::subscribe($icao), null]
-            : [ReplyButton::runwayWind($icao), "🔔 _Ya te estoy avisando de los cambios acá, hasta el {$existing->expiryLabel()}._"];
+            : [null, "🔔 _Ya te estoy avisando de los cambios acá, hasta el {$existing->expiryLabel()}._"];
     }
 
     /**
@@ -1290,12 +1291,21 @@ class WhatsappBotService
             return WhatsappReply::of($this->helpMessage());
         }
 
+        // The one answer that carries its menu instead of following it with
+        // one. The ficha is the default reply — anything the bot cannot place
+        // lands here — so it is where somebody arrives without having asked a
+        // question yet, and a second message whose whole content is "want
+        // anything else?" is a message they did not need in order to see the
+        // options. The runway-wind offer moves inside the sheet rather than
+        // being lost: a message draws one set of actions, and this is the set.
+        $menu = $this->menuFor('info', $indicator, $from);
+
         return $this->formatAirportInfo(
             $airport,
             $this->runways->forAnacCode($indicator),
-            $this->runwayWindOffer($indicator),
+            $menu?->button,
             $this->sunTimesFor($indicator),
-        )->withMenu($this->menuFor('info', $indicator, $from));
+        );
     }
 
     /**
@@ -1904,8 +1914,8 @@ class WhatsappBotService
     }
 
     /**
-     * The follow-up offering the other three topics for the aerodrome just
-     * answered about.
+     * The follow-up offering the other topics for the aerodrome just answered
+     * about.
      *
      * Null off-channel, where there is nobody to send a second message to;
      * null for a place whose code will not fit the button payload (ANAC's
@@ -1921,7 +1931,8 @@ class WhatsappBotService
             return null;
         }
 
-        $code = $this->airports->icaoFor($indicator) ?? $indicator;
+        $icao = $this->airports->icaoFor($indicator);
+        $code = $icao ?? $indicator;
 
         if (preg_match('/^[A-Z]{3,4}$/', $code) !== 1) {
             return null;
@@ -1929,7 +1940,23 @@ class WhatsappBotService
 
         $name = $this->airports->nameFor($indicator) ?? $indicator;
 
-        return new ReplyMenu("¿Querés algo más de *{$name}*?", ReplyButton::menu($topic, $code));
+        // Offered wherever the aerodrome has cabeceras to answer about, with no
+        // regard for whether the answer above already carries the same button.
+        // Under a METAR it does and the row repeats it; leaving it out there
+        // would mean the sheet holds a different set depending on what was just
+        // asked, and a menu somebody has to open to discover is one whose
+        // contents have to be the same every time.
+        $runwayWind = $this->runwayWindOffer($indicator);
+
+        return new ReplyMenu(
+            "¿Querés algo más de *{$name}*?",
+            ReplyButton::menu(
+                $topic,
+                $code,
+                withCharts: $icao !== null,
+                runwayWindId: $runwayWind?->buttons[0]['id'],
+            ),
+        );
     }
 
     protected function tafReply(string $indicator, ?string $from): WhatsappReply

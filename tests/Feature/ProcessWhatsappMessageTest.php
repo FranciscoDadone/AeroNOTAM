@@ -36,8 +36,10 @@ it('skips the typing indicator when the inbound message id is unknown', function
     (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'aeroparque'))
         ->handle(app(WhatsappBotService::class), $this->sender);
 
+    // The ficha carries its menu, so it goes out as a list rather than as a
+    // plain message. What matters here is that it went out at all.
     expect($this->sender->typing)->toBeEmpty()
-        ->and($this->sender->sent)->not->toBeEmpty();
+        ->and($this->sender->sentWithList)->not->toBeEmpty();
 });
 
 /**
@@ -90,29 +92,37 @@ it('declares a retry policy', function () {
 
 /**
  * The follow-up menu is a message of its own, sent after the answer — never
- * merged onto it, since WhatsApp renders one set of buttons per message.
+ * merged onto it, since WhatsApp renders one set of actions per message. It
+ * goes out as a list sheet: there are more topics than the three a message can
+ * draw as buttons.
  */
-it('sends the menu as a message of its own after the answer', function () {
+it('sends the menu as a list on a message of its own after the answer', function () {
     (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'notams aeroparque'))
         ->handle(app(WhatsappBotService::class), $this->sender);
 
     expect($this->sender->sent)->toHaveCount(3)
-        ->and($this->sender->sentWithButtons)->toHaveCount(1)
-        ->and($this->sender->buttonedBodies()[0])->toContain('AEROPARQUE')
-        ->and($this->sender->buttonIds())->toBe(['ask:metar:SABE', 'ask:taf:SABE', 'ask:crepusculo:SABE']);
+        ->and($this->sender->sentWithButtons)->toBeEmpty()
+        ->and($this->sender->sentWithList)->toHaveCount(1)
+        ->and($this->sender->sentWithList[0]['body'])->toContain('AEROPARQUE')
+        ->and($this->sender->listRowIds())
+        ->toBe(['ask:metar:SABE', 'ask:taf:SABE', 'ask:carta:SABE', 'ask:crepusculo:SABE', 'ask:info:SABE']);
 });
 
+/**
+ * Two messages, and two different shapes: the watch offer fits in buttons on
+ * the report, the menu does not fit in three at all.
+ */
 it('sends the watch offer and the menu as two separate messages', function () {
     fakeMetar();
 
     (new ProcessWhatsappMessage('whatsapp:+5491111111111', 'metar EZE'))
         ->handle(app(WhatsappBotService::class), $this->sender);
 
-    expect($this->sender->sentWithButtons)->toHaveCount(2)
+    expect($this->sender->sentWithButtons)->toHaveCount(1)
         ->and(array_column($this->sender->sentWithButtons[0]['buttons'], 'id'))
-        ->toBe(['sub:SAEZ:12', 'pista:SAEZ'])
-        ->and(array_column($this->sender->sentWithButtons[1]['buttons'], 'id'))
-        ->toBe(['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']);
+        ->toBe(['sub:SAEZ:12'])
+        ->and($this->sender->sentWithList)->toHaveCount(1)
+        ->and($this->sender->listRowIds())->toContain('ask:carta:SAEZ');
 });
 
 /**

@@ -9,17 +9,19 @@ use Illuminate\Support\Str;
  *
  * Each one is an id we choose and a caption the reader sees. The id comes back
  * to us verbatim when the button is tapped, which is why the aerodrome travels
- * inside it — the tap needs no guessing about what the user meant. The captions
- * are capped at twenty characters and WhatsApp renders at most three of them,
- * and that ceiling is the whole shape of this class: the follow-up menu has
- * already spent its three on the other topics, so anything else has to ride on
- * the answer itself.
+ * inside it — the tap needs no guessing about what the user meant.
  *
- * Unless the set does not fit in three, which is what $listLabel is for. An
- * aerodrome can have a dozen AIP documents, and WhatsApp's other shape — one
- * labelled button opening a sheet of up to ten rows — is the only way to offer
- * them. It is the same thing to everything downstream: same ids, same grammar,
- * same tap coming back, only drawn differently.
+ * WhatsApp draws these two ways, and $listLabel is which. Null means buttons:
+ * at most three per message, captions capped at twenty characters, visible
+ * without opening anything — right for an offer or two riding on an answer,
+ * like the watch and the runway components under a METAR. Non-null means a
+ * list sheet: one labelled button opening up to ten rows, each with a second
+ * line under its caption. That is the only shape that fits a set that outgrew
+ * three — an aerodrome's AIP documents, and the follow-up menu now that there
+ * are six topics to offer.
+ *
+ * It is the same thing to everything downstream either way: same ids, same
+ * grammar, same tap coming back, only drawn differently.
  */
 final readonly class ReplyButton
 {
@@ -43,13 +45,12 @@ final readonly class ReplyButton
     public function __construct(public array $buttons, public ?string $listLabel = null) {}
 
     /**
-     * "Watch this aerodrome for the next twelve hours" — and, on the same
-     * message, "what is the wind doing to the runways?".
+     * "Watch this aerodrome for the next twelve hours."
      *
-     * Two actions rather than one because WhatsApp allows three per message and
-     * the follow-up menu has already spent its three on the other topics. The
-     * runway components are a question about the report just sent, so the
-     * report is where the offer belongs.
+     * On its own. The runway components used to sit beside it, back when the
+     * follow-up menu was three buttons with no room for them; now they are a
+     * row of its sheet, offered on every answer about the aerodrome instead of
+     * only under a METAR.
      *
      * The twelve is in the id as well as the caption: the two must not be able
      * to drift apart.
@@ -58,7 +59,6 @@ final readonly class ReplyButton
     {
         return new self([
             ['id' => "sub:{$icaoCode}:12", 'title' => '🔔 Avisarme 12 h'],
-            ['id' => "pista:{$icaoCode}", 'title' => '🛬 Viento en pista'],
         ]);
     }
 
@@ -118,46 +118,79 @@ final readonly class ReplyButton
     }
 
     /**
-     * "Want anything else about this aerodrome?" — the other topics for the
-     * same aerodrome, minus the one just answered.
+     * Every topic that can be reached with a tap, in the order they are
+     * offered. The one just answered is dropped, so the menu is always this
+     * list minus itself.
      *
-     * PRONAREA is deliberately absent: it is not offered as a quick-reply
-     * action, by design. Crepúsculo is the one left out of the ficha's menu,
-     * because WhatsApp renders three and it is the least likely next question
-     * after "where is this place".
+     * It used to be three per topic, chosen by hand, because a message renders
+     * three buttons and there was nowhere to put a fourth. Drawn as a list
+     * sheet there is room for ten, so nothing has to be left out and no topic
+     * is reachable only by knowing the words for it — which was the whole
+     * problem with the AIP documents, the one thing nobody guesses they can
+     * ask for.
      *
-     * @var array<string, array<int, string>>
+     * PRONAREA and AEROMET stay out, as they always have: neither is a
+     * question about one aerodrome, so neither belongs under one.
+     *
+     * @var array<int, string>
      */
-    protected const MENU_OFFERS = [
-        'notam' => ['metar', 'taf', 'crepusculo'],
-        'metar' => ['notam', 'taf', 'crepusculo'],
-        'taf' => ['notam', 'metar', 'crepusculo'],
-        'crepusculo' => ['notam', 'metar', 'taf'],
-        'info' => ['notam', 'metar', 'taf'],
+    protected const MENU_ORDER = ['notam', 'metar', 'pista', 'taf', 'carta', 'crepusculo', 'info'];
+
+    /**
+     * The caption each topic is offered under, and the line under it. A row's
+     * caption has more room than a button's twenty characters, so these are
+     * unchanged from when they were buttons and still fit.
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
+    protected const MENU_TITLES = [
+        'notam' => ['✈️ NOTAMs', 'Avisos vigentes para el aeródromo'],
+        'metar' => ['🌦️ METAR', 'El tiempo ahora'],
+        'pista' => ['🛬 Viento en pista', 'Qué cabecera favorece el viento ahora'],
+        'taf' => ['🔭 TAF', 'Pronóstico para las próximas horas'],
+        'carta' => ['📄 Cartas AIP', 'Aproximación, plano de aeródromo y demás documentos'],
+        'crepusculo' => ['🌅 Salida/Puesta sol', 'Orto, ocaso y crepúsculos de hoy'],
+        'info' => ['🛬 Ficha del aeródromo', 'Pistas, elevación, servicios y ubicación'],
     ];
 
     /**
-     * The caption each topic is offered under. Twenty characters is WhatsApp's
-     * ceiling, and "🌅 Salida/Puesta sol" is the one that sits closest to it.
+     * "Want anything else about this aerodrome?"
      *
-     * @var array<string, string>
+     * $withCharts is false where the aerodrome has no ICAO code: the AIP
+     * indexes its documents by that and nothing else, so offering the row
+     * would promise something the tap could only answer with an apology. It is
+     * passed in rather than guessed from $code, which holds the ANAC indicator
+     * for exactly those aerodromes and is not always distinguishable by shape.
+     *
+     * $runwayWindId is the whole runway-wind row, or null for no row at all —
+     * there is nothing to say for an aerodrome whose cabeceras are unknown.
+     * The id arrives already built rather than assembled here, because that
+     * offer has its own grammar (pista:, not ask:) and its own rule about which
+     * code goes in it: the ICAO where there is one, the ANAC indicator where
+     * AEROMET observes the locality instead. Building it twice is how the two
+     * would drift.
      */
-    protected const MENU_TITLES = [
-        'notam' => '✈️ NOTAMs',
-        'metar' => '🌦️ METAR',
-        'taf' => '🔭 TAF',
-        'crepusculo' => '🌅 Salida/Puesta sol',
-    ];
-
-    public static function menu(string $topic, string $code): self
+    public static function menu(string $topic, string $code, bool $withCharts = true, ?string $runwayWindId = null): self
     {
-        return new self(array_map(
+        $offers = array_filter(self::MENU_ORDER, fn (string $offer) => match ($offer) {
+            $topic => false,
+            'carta' => $withCharts,
+            'pista' => $runwayWindId !== null,
+            default => true,
+        });
+
+        $rows = array_map(
             fn (string $offer) => [
-                'id' => "ask:{$offer}:{$code}",
-                'title' => self::MENU_TITLES[$offer],
+                'id' => $offer === 'pista' ? (string) $runwayWindId : "ask:{$offer}:{$code}",
+                'title' => Str::limit(self::MENU_TITLES[$offer][0], self::MAX_ROW_TITLE - 1, '…'),
+                'description' => Str::limit(self::MENU_TITLES[$offer][1], self::MAX_ROW_DESCRIPTION - 1, '…'),
             ],
-            self::MENU_OFFERS[$topic],
-        ));
+            $offers,
+        );
+
+        // Slicing also reindexes, which the filter above made necessary: a
+        // sheet with a gap in its keys serialises as an object, not an array.
+        return new self(array_slice($rows, 0, self::MAX_LIST_ROWS), '📋 Más opciones');
     }
 
     /**

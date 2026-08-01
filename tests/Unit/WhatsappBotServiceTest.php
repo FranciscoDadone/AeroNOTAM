@@ -717,7 +717,7 @@ it('offers the watch button under an observation', function () {
     $reply = bot()->reply('metar EZE', PHONE);
 
     expect($reply->button)->not->toBeNull()
-        ->and(buttonIds($reply->button))->toBe(['sub:SAEZ:12', 'pista:SAEZ']);
+        ->and(buttonIds($reply->button))->toBe(['sub:SAEZ:12']);
 });
 
 /**
@@ -732,15 +732,11 @@ it('does not offer the watch button when there is no sender', function () {
 /**
  * The watch offer becomes a line of text once a watch is running — tapping a
  * button that promised something already true would look like it had failed.
- * The runway-wind offer is not like that and stays, which is why it has a
- * template of its own.
+ * It was the only offer left on the report, so nothing takes its place; the
+ * other topics are in the sheet that follows.
  */
 it('does not offer a watch that is already running', function () {
     fakeMetar();
-    config([
-        'services.twilio.content_sid_metar' => 'HXtest',
-        'services.twilio.content_sid_pista' => 'HXpista',
-    ]);
 
     MetarSubscription::create([
         'phone' => PHONE,
@@ -752,7 +748,7 @@ it('does not offer a watch that is already running', function () {
 
     $reply = bot()->reply('metar EZE', PHONE);
 
-    expect(buttonIds($reply->button))->toBe(['pista:SAEZ'])
+    expect($reply->button)->toBeNull()
         ->and(implode(' ', $reply->messages))->toContain('Ya te estoy avisando');
 });
 
@@ -1274,18 +1270,37 @@ it('offers the other topics after answering about an aerodrome', function (strin
         ->and(buttonIds($reply->menu->button))->toBe($offers)
         ->and($reply->menu->body)->toContain('EZEIZA');
 })->with([
-    'notam' => ['notams EZE', ['ask:metar:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']],
-    'metar' => ['metar EZE', ['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']],
-    'taf' => ['taf EZE', ['ask:notam:SAEZ', 'ask:metar:SAEZ', 'ask:crepusculo:SAEZ']],
+    'notam' => ['notams EZE', ['ask:metar:SAEZ', 'ask:taf:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ']],
+    'metar' => ['metar EZE', ['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ']],
+    'taf' => ['taf EZE', ['ask:notam:SAEZ', 'ask:metar:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ']],
 ]);
 
+/**
+ * Both under the same answer, and drawn differently: the watch offer is two
+ * buttons on the report itself, the menu a sheet on a message of its own.
+ */
 it('offers both the watch and the menu under an observation', function () {
     fakeMetar();
 
     $reply = bot()->reply('metar EZE', PHONE);
 
-    expect(buttonIds($reply->button))->toBe(['sub:SAEZ:12', 'pista:SAEZ'])
-        ->and(buttonIds($reply->menu?->button))->toBe(['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']);
+    expect(buttonIds($reply->button))->toBe(['sub:SAEZ:12'])
+        ->and($reply->button->listLabel)->toBeNull()
+        ->and($reply->menu?->button->listLabel)->not->toBeNull()
+        ->and(buttonIds($reply->menu?->button))->toContain('ask:carta:SAEZ');
+});
+
+/**
+ * The AIP has nothing for an aerodrome without an ICAO code, so the row that
+ * would lead there is not drawn. Everything else still is.
+ */
+it('leaves the charts out of the menu for an aerodrome with no icao', function () {
+    fakeAnac();
+
+    $ids = buttonIds(bot()->reply('notams alta gracia', PHONE)->menu?->button);
+
+    expect($ids)->not->toContain('ask:carta:AGR')
+        ->and($ids)->toContain('ask:metar:AGR');
 });
 
 it('does not offer a menu off-channel', function () {
@@ -1361,12 +1376,27 @@ it('answers a tapped menu button without any keyword matching', function (string
     'crepusculo' => ['ask:crepusculo:SAZR', 'SANTA ROSA'],
 ]);
 
+/**
+ * A tapped "Cartas AIP" names no kind of document, so it offers the whole
+ * listing rather than guessing at one — no PDF goes out until a row is tapped.
+ */
+it('offers the listing when the charts are reached by tapping', function () {
+    fakeAipDocuments();
+
+    $reply = bot()->reply('📄 Cartas AIP', PHONE, 'ask:carta:SAZR');
+
+    expect($reply->documents)->toBeEmpty()
+        ->and($reply->messages[0])->toContain('SANTA ROSA')
+        ->and(buttonIds($reply->button))->toBe(['doc:SAZR:0', 'doc:SAZR:1', 'doc:SAZR:2', 'doc:SAZR:3']);
+});
+
 it('keeps offering the other topics after a tapped one', function () {
     fakeAnac();
 
     $reply = bot()->reply('✈️ NOTAMs', PHONE, 'ask:notam:SAEZ');
 
-    expect(buttonIds($reply->menu?->button))->toBe(['ask:metar:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']);
+    expect(buttonIds($reply->menu?->button))
+        ->toBe(['ask:metar:SAEZ', 'ask:taf:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ']);
 });
 
 it('offers the watch again under a metar reached by tapping', function () {
@@ -1374,15 +1404,15 @@ it('offers the watch again under a metar reached by tapping', function () {
 
     $reply = bot()->reply('🌦️ METAR', PHONE, 'ask:metar:SAEZ');
 
-    expect(buttonIds($reply->button))->toBe(['sub:SAEZ:12', 'pista:SAEZ'])
-        ->and(buttonIds($reply->menu?->button))->toBe(['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:crepusculo:SAEZ']);
+    expect(buttonIds($reply->button))->toBe(['sub:SAEZ:12'])
+        ->and(buttonIds($reply->menu?->button))->toContain('ask:notam:SAEZ');
 });
 
 it('carries an aerodrome without an icao code in the menu payload', function () {
     fakeAnac();
 
     expect(buttonIds(bot()->reply('notams alta gracia', PHONE)->menu?->button))
-        ->toBe(['ask:metar:AGR', 'ask:taf:AGR', 'ask:crepusculo:AGR']);
+        ->toBe(['ask:metar:AGR', 'ask:taf:AGR', 'ask:crepusculo:AGR', 'ask:info:AGR']);
 });
 
 it('answers honestly when a tapped topic has nothing for that aerodrome', function () {
@@ -1445,7 +1475,8 @@ it('offers the menu for a sun answer that names an aerodrome', function (string 
     $reply = bot()->reply($message, PHONE);
 
     expect($reply->menu)->not->toBeNull()
-        ->and(buttonIds($reply->menu->button))->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'ask:taf:SAZR']);
+        ->and(buttonIds($reply->menu->button))
+        ->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'ask:taf:SAZR', 'ask:carta:SAZR', 'ask:info:SAZR']);
 
     Carbon::setTestNow();
 })->with([
@@ -1976,7 +2007,14 @@ it('puts the runway-wind button on the last notam message only', function () {
         ->and($outbound[0][1])->toBeNull()
         ->and($outbound[1][1])->toBeNull()
         ->and(buttonIds($outbound[2][1]))->toBe(['pista:SABE'])
-        ->and(buttonIds($outbound[3][1]))->toBe(['ask:metar:SABE', 'ask:taf:SABE', 'ask:crepusculo:SABE']);
+        ->and(buttonIds($outbound[3][1]))->toBe([
+            'ask:metar:SABE',
+            'pista:SABE',
+            'ask:taf:SABE',
+            'ask:carta:SABE',
+            'ask:crepusculo:SABE',
+            'ask:info:SABE',
+        ]);
 });
 
 /**
@@ -2350,12 +2388,13 @@ it('does not swallow the questions its own keywords appear inside', function (st
     'a bare name' => ['ezeiza', 'info'],
 ]);
 
-it('offers the other three topics under the ficha', function () {
+it('offers the other topics under the ficha', function () {
     seedSantaRosaFicha();
 
     $menu = bot()->reply('osa', PHONE)->menu;
 
-    expect(buttonIds($menu->button))->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'ask:taf:SAZR']);
+    expect(buttonIds($menu->button))
+        ->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'ask:taf:SAZR', 'ask:carta:SAZR', 'ask:crepusculo:SAZR']);
 });
 
 it('answers a tapped ficha button without any text matching', function () {
@@ -2380,30 +2419,80 @@ it('does not repeat a code two registries agree on', function () {
 });
 
 /**
- * The ficha has just listed the cabeceras, so "which of these does the wind
- * favour right now" is the next thing the reader wants — the same reason the
- * offer rides under a NOTAM.
+ * The ficha carries its menu rather than being followed by one. It is the
+ * default answer — anything unplaceable lands here — so it is where somebody
+ * arrives before having asked anything, and a second message saying only "want
+ * anything else?" is one they did not need to see the options.
  */
-it('offers the runway wind under the ficha', function () {
+it('carries the menu on the ficha itself instead of after it', function () {
     seedSantaRosaFicha();
-    config(['services.twilio.content_sid_pista' => 'HXpista']);
 
     $reply = bot()->reply('osa', PHONE);
 
-    expect(buttonIds($reply->button))->toBe(['pista:SAZR']);
+    expect($reply->menu)->toBeNull()
+        ->and($reply->button?->listLabel)->not->toBeNull()
+        ->and(buttonIds($reply->button))->toBe([
+            'ask:notam:SAZR',
+            'ask:metar:SAZR',
+            'pista:SAZR',
+            'ask:taf:SAZR',
+            'ask:carta:SAZR',
+            'ask:crepusculo:SAZR',
+        ])
+        ->and($reply->outbound())->toHaveCount(1);
 });
 
 /**
- * A button leading to "no tengo los rumbos de pista" is worse than no button,
- * and a message carrying one is split to the shorter template budget — which
- * would cost extra messages for nothing.
+ * The runway-wind offer moved into the sheet rather than being lost with the
+ * button it used to be. Its id keeps its own grammar — pista:, not ask: — so
+ * that one action never ends up with two names.
  */
-it('does not offer the runway wind on a ficha with no runways', function () {
+it('offers the runway wind as a row of the ficha sheet', function () {
+    seedSantaRosaFicha();
+
+    expect(buttonIds(bot()->reply('osa', PHONE)->button))->toContain('pista:SAZR');
+});
+
+/**
+ * A row leading to "no tengo los rumbos de pista" is worse than no row, the
+ * same reason the button was withheld before it.
+ */
+it('leaves the runway wind out of the ficha sheet with no runways', function () {
     seedSantaRosaFicha();
     Runway::where('anac_code', 'OSA')->delete();
-    config(['services.twilio.content_sid_pista' => 'HXpista']);
 
-    expect(bot()->reply('osa', PHONE)->button)->toBeNull();
+    expect(buttonIds(bot()->reply('osa', PHONE)->button))->not->toContain('pista:SAZR');
+});
+
+/**
+ * The sheet holds the same set whatever was just asked. Under a METAR the offer
+ * is also a button on the report and the row repeats it — worth it, because a
+ * menu somebody has to open to discover is one whose contents cannot change
+ * shape underneath them.
+ */
+it('offers the runway wind in every menu for an aerodrome with runways', function (string $message, string $code) {
+    fakeAnac();
+    fakeMetar();
+    fakeTaf();
+    seedAeroparqueRunways();
+
+    $reply = bot()->reply($message, PHONE);
+
+    expect(buttonIds($reply->menu?->button))->toContain("pista:{$code}");
+})->with([
+    'taf' => ['taf aeroparque', 'SABE'],
+    'metar' => ['metar aeroparque', 'SABE'],
+    'notam' => ['notams aeroparque', 'SABE'],
+]);
+
+/**
+ * Off-channel there is nobody to offer anything to, and the ficha goes out as
+ * a plain message — which is also what keeps it on the longer budget.
+ */
+it('sends the ficha with no actions at all off-channel', function () {
+    seedSantaRosaFicha();
+
+    expect(bot()->reply('osa')->button)->toBeNull();
 });
 
 it('splits a ficha that carries the button to the smaller template budget', function () {

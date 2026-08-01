@@ -22,6 +22,19 @@ final readonly class AipDocument
     ) {}
 
     /**
+     * @param  array<string, mixed>  $row
+     */
+    public static function fromArray(array $row): self
+    {
+        return new self(
+            icaoCode: (string) ($row['icao_code'] ?? ''),
+            code: (string) ($row['code'] ?? ''),
+            title: (string) ($row['title'] ?? ''),
+            url: (string) ($row['url'] ?? ''),
+        );
+    }
+
+    /**
      * What names this document across AIRAC cycles: the aerodrome, the section
      * and the title, but never the URL. The chart is the same chart after an
      * amendment moves its download link.

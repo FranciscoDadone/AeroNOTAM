@@ -148,7 +148,12 @@ class AipService
         // window is kept short because a download URL embeds a hash that
         // changes with each AIRAC amendment, and a stale one is a link that
         // WhatsApp will fail to fetch.
-        return $this->listing = Cache::remember(
+        //
+        // Plain arrays into the cache, hydrated on the way out, same as
+        // AnacNotamService: the cache refuses to unserialize objects
+        // (cache.serializable_classes), so an AipDocument put in here comes
+        // back as __PHP_Incomplete_Class.
+        $rows = Cache::remember(
             'aip:ad-listing',
             (int) config('services.aip.listing_ttl'),
             function (): array {
@@ -166,6 +171,11 @@ class AipService
                 return $this->parseListing($response->body());
             },
         );
+
+        return $this->listing = array_map(
+            fn (array $documents) => array_map(AipDocument::fromArray(...), $documents),
+            $rows,
+        );
     }
 
     /**
@@ -182,7 +192,7 @@ class AipService
      * half-decoded title is the kind of thing that reads fine in a list and
      * silently fails a keyword match.
      *
-     * @return array<string, array<int, AipDocument>>
+     * @return array<string, array<int, array<string, mixed>>>
      */
     protected function parseListing(string $html): array
     {
@@ -196,12 +206,12 @@ class AipService
         $documents = [];
 
         foreach ($matches as $match) {
-            $documents[$match[1]][] = new AipDocument(
-                icaoCode: $match[1],
-                code: trim($match[2]),
-                title: trim(html_entity_decode($match[3], ENT_QUOTES | ENT_HTML5)),
-                url: str_starts_with($match[4], 'http') ? $match[4] : $this->baseUrl.$match[4],
-            );
+            $documents[$match[1]][] = [
+                'icao_code' => $match[1],
+                'code' => trim($match[2]),
+                'title' => trim(html_entity_decode($match[3], ENT_QUOTES | ENT_HTML5)),
+                'url' => str_starts_with($match[4], 'http') ? $match[4] : $this->baseUrl.$match[4],
+            ];
         }
 
         return $documents;

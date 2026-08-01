@@ -23,6 +23,15 @@ use Tests\TestCase;
 uses(TestCase::class)->in('Feature', 'Unit');
 
 /*
+ * Http::fake() only stubs the patterns it is handed; anything else goes out to
+ * the real network. That was tolerable while only a handful of paths made
+ * requests, but every answer about an aerodrome now asks the AIP whether it
+ * publishes charts for it, and the suite would quietly hammer ANAC. Straying
+ * is an exception from here on: a test that means to make a request stubs it.
+ */
+uses()->beforeEach(fn () => Http::preventStrayRequests())->in('Feature', 'Unit');
+
+/*
 |--------------------------------------------------------------------------
 | Helpers
 |--------------------------------------------------------------------------

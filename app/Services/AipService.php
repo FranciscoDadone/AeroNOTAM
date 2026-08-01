@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\DataObjects\AipDocument;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -100,6 +101,19 @@ class AipService
     }
 
     /**
+     * Whether the AIP publishes anything at all for an aerodrome.
+     *
+     * Having an ICAO code is not enough: the AIP only carries the aerodromes
+     * ANAC delegates to it, and Junín (SAAJ) has a code and no documents. The
+     * question is asked before offering the charts, so that the offer is only
+     * made where there is something behind it.
+     */
+    public function hasDocuments(string $icaoCode): bool
+    {
+        return $this->documentsFor($icaoCode) !== [];
+    }
+
+    /**
      * The raw bytes of one AIP PDF.
      */
     public function download(string $url): string
@@ -128,18 +142,30 @@ class AipService
             return $this->listing;
         }
 
-        $response = Http::timeout(30)
-            ->withHeaders([
-                'User-Agent' => 'Mozilla/5.0',
-                'X-Requested-With' => 'XMLHttpRequest',
-            ])
-            ->get("{$this->baseUrl}/aip/ad");
+        // Cached across replies, not only within one. Every answer about an
+        // aerodrome now asks whether the AIP has anything for it, so without
+        // this the listing would be fetched from ANAC once per message. The
+        // window is kept short because a download URL embeds a hash that
+        // changes with each AIRAC amendment, and a stale one is a link that
+        // WhatsApp will fail to fetch.
+        return $this->listing = Cache::remember(
+            'aip:ad-listing',
+            (int) config('services.aip.listing_ttl'),
+            function (): array {
+                $response = Http::timeout(30)
+                    ->withHeaders([
+                        'User-Agent' => 'Mozilla/5.0',
+                        'X-Requested-With' => 'XMLHttpRequest',
+                    ])
+                    ->get("{$this->baseUrl}/aip/ad");
 
-        if ($response->failed()) {
-            throw new RuntimeException("No se pudo obtener el listado de la AIP (HTTP {$response->status()}).");
-        }
+                if ($response->failed()) {
+                    throw new RuntimeException("No se pudo obtener el listado de la AIP (HTTP {$response->status()}).");
+                }
 
-        return $this->listing = $this->parseListing($response->body());
+                return $this->parseListing($response->body());
+            },
+        );
     }
 
     /**

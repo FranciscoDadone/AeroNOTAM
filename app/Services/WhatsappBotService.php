@@ -1953,10 +1953,35 @@ class WhatsappBotService
             ReplyButton::menu(
                 $topic,
                 $code,
-                withCharts: $icao !== null,
+                withCharts: $icao !== null && $this->aipPublishesFor($icao),
                 runwayWindId: $runwayWind?->buttons[0]['id'],
             ),
         );
+    }
+
+    /**
+     * Whether the AIP has anything for an aerodrome, for deciding whether the
+     * charts are worth offering.
+     *
+     * Having an ICAO code is not enough — Junín (SAAJ) has one and the AIP
+     * publishes nothing for it — and neither is is_aip_delegated, which marks
+     * MADHEL's grant of the *ficha* data and says nothing about charts: Tandil
+     * is not delegated and publishes four documents. So the listing itself is
+     * the only honest answer, which is why it is cached rather than fetched.
+     *
+     * A listing that cannot be read leaves the row on. The tap explains itself
+     * plainly in that case, and going quiet during an ANAC outage would hide a
+     * feature rather than report a problem.
+     */
+    protected function aipPublishesFor(string $icao): bool
+    {
+        try {
+            return $this->aip->hasDocuments($icao);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return true;
+        }
     }
 
     protected function tafReply(string $indicator, ?string $from): WhatsappReply

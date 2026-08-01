@@ -51,6 +51,12 @@ return [
         // is abandoned, rather than importing a handful of aerodromes as if
         // the AIP had stopped publishing the rest.
         'minimum_ad_documents' => env('AIP_MINIMUM_AD_DOCUMENTS', 30),
+
+        // El listado se consulta ahora en cada respuesta, para saber si el
+        // aeródromo tiene cartas antes de ofrecerlas. Una hora acota lo viejo
+        // que puede ser el hash AIRAC de las descargas sin pegarle a ANAC en
+        // cada mensaje.
+        'listing_ttl' => env('AIP_LISTING_TTL', 3600),
     ],
 
     // ANAC's aerodrome registry (MADHEL), on a different host than the NOTAM

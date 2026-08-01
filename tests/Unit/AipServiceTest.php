@@ -92,6 +92,36 @@ it('reads the listing once per instance', function () {
     Http::assertSentCount(1);
 });
 
+/**
+ * And once across replies, which is the part that matters now: every answer
+ * about an aerodrome asks whether the AIP has charts for it, and each of those
+ * is a fresh service out of the container.
+ */
+it('reads the listing once across instances', function () {
+    fakeAipDocuments();
+
+    aip()->documentsFor('SAZR');
+    app()->forgetInstance(AipService::class);
+    (new AipService)->documentsFor('SAEZ');
+
+    Http::assertSentCount(1);
+});
+
+/**
+ * Having an ICAO code is not the same as being in the AIP. Junín (SAAJ) has one
+ * and nothing published under it, which is why the charts row is decided by
+ * this rather than by is_aip_delegated — a field that marks MADHEL's grant of
+ * the ficha data and answers a different question. Tandil is not delegated and
+ * publishes four documents.
+ */
+it('says whether the aip publishes anything for an aerodrome', function () {
+    fakeAipDocuments();
+
+    expect(aip()->hasDocuments('SAZR'))->toBeTrue()
+        ->and(aip()->hasDocuments('SABE'))->toBeFalse()
+        ->and(aip()->hasDocuments('sazr'))->toBeTrue();
+});
+
 it('fails loudly when the AIP does not answer', function () {
     Http::fake(['*/aip/ad' => Http::response('', 503)]);
 

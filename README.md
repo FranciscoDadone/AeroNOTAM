@@ -667,12 +667,28 @@ justamente lo que nadie adivina que puede pedir—, así que el menú pasó a se
 una hoja y entran todos.
 
 Dos filas son condicionadas, y las dos por la misma razón: una fila que lleva a
-_"no tengo eso"_ es peor que ninguna. La de **cartas** sale sólo si el aeródromo
-tiene código OACI, porque la AIP indexa sus documentos por ese código y nada más
-(para Alta Gracia, AGR, no se dibuja). La de **viento en pista** sale sólo si hay
-rumbos cargados. Su identificador conserva su propia gramática —`pista:`, no
-`ask:`— y se arma reusando `runwayWindOffer()`, para que una acción no termine
-con dos nombres ni con dos lugares que deciden qué código va adentro.
+_"no tengo eso"_ es peor que ninguna.
+
+La de **viento en pista** sale sólo si hay rumbos cargados. Su identificador
+conserva su propia gramática —`pista:`, no `ask:`— y se arma reusando
+`runwayWindOffer()`, para que una acción no termine con dos nombres ni con dos
+lugares que deciden qué código va adentro.
+
+La de **cartas** sale sólo si la AIP publica algo de ese aeródromo, y eso se
+pregunta contra el listado real. Tener código OACI no alcanza: Junín (SAAJ)
+tiene uno y la AIP no publica un solo documento suyo. Y **`is_aip_delegated`
+tampoco sirve** aunque lo parezca — marca la delegación que hace MADHEL de los
+datos de la ficha (combustible, teléfono, horarios), no si hay cartas. De los 51
+aeródromos con documentos en la AIP, 13 figuran como no delegados, Tandil entre
+ellos. Usar ese campo dejaría sin cartas justo a los que más se piden.
+
+Por eso `AipService` cachea el listado (`services.aip.listing_ttl`, una hora):
+ahora se consulta en cada respuesta sobre un aeródromo, y sin caché sería un
+pedido a ANAC por mensaje. La ventana es corta a propósito, porque los enlaces
+de descarga llevan un hash que cambia con cada enmienda AIRAC y uno viejo es un
+link que WhatsApp no va a poder bajar. Si el listado no se puede leer, la fila
+**se ofrece igual**: no poder consultar no es lo mismo que saber que no hay
+nada, y el toque explica el problema en vez de que la opción desaparezca sola.
 
 Esa fila sale en **todas** las respuestas del aeródromo, no sólo donde parecería
 más pertinente. Una hoja que hay que abrir para ver qué tiene no puede además

@@ -1303,6 +1303,47 @@ it('leaves the charts out of the menu for an aerodrome with no icao', function (
         ->and($ids)->toContain('ask:metar:AGR');
 });
 
+/**
+ * Nor for one that has a code the AIP simply does not carry. Junín (SAAJ) is
+ * the real case: an ICAO code, and not one document published under it.
+ */
+it('leaves the charts out of the menu when the aip publishes nothing', function () {
+    fakeAnac();
+    fakeAipDocuments();
+
+    // The fixture listing carries SAZR and SAEZ and nothing else.
+    $ids = buttonIds(bot()->reply('notams junin', PHONE)->menu?->button);
+
+    expect($ids)->not->toContain('ask:carta:SAAJ')
+        ->and($ids)->toContain('ask:metar:SAAJ');
+});
+
+it('offers the charts for an aerodrome the aip does carry', function () {
+    fakeAnac();
+    fakeAipDocuments();
+
+    expect(buttonIds(bot()->reply('notams santa rosa', PHONE)->menu?->button))
+        ->toContain('ask:carta:SAZR');
+});
+
+/**
+ * An unreadable listing is not proof of nothing published, and going quiet
+ * during an ANAC outage would hide the feature instead of reporting the
+ * trouble — the tap says plainly what went wrong.
+ *
+ * This is also the state every other test in this file is in, since the AIP
+ * host is unroutable under phpunit unless a test stubs it: a menu asserted
+ * anywhere else carries the charts row because of this branch, not because the
+ * listing was consulted.
+ */
+it('keeps offering the charts when the aip listing cannot be read', function () {
+    fakeAnac();
+    Http::fake(['*/aip/ad' => Http::response('', 503)]);
+
+    expect(buttonIds(bot()->reply('notams santa rosa', PHONE)->menu?->button))
+        ->toContain('ask:carta:SAZR');
+});
+
 it('does not offer a menu off-channel', function () {
     fakeAnac();
 

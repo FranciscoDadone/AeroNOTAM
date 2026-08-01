@@ -38,10 +38,23 @@ class NotamAbbreviationDecoder
      */
     public function glossaryFor(string $text): array
     {
+        $glossary = [];
+
+        // Multi-word entries first, and the text they matched is removed
+        // before the token pass: "MOV AREA" must reach the model as "área de
+        // movimiento", not alongside a contradictory "MOV: mover".
+        foreach (self::table('phrases_es') as $phrase => $meaning) {
+            $pattern = '/\b'.preg_quote($phrase, '/').'\b/iu';
+
+            if (preg_match($pattern, $text) === 1) {
+                $glossary[mb_strtoupper($phrase)] = $meaning;
+                $text = preg_replace($pattern, ' ', $text) ?? $text;
+            }
+        }
+
         preg_match_all('/[A-Za-zÁÉÍÓÚáéíóúÑñ][A-Za-zÁÉÍÓÚáéíóúÑñ0-9\/]*/u', $text, $matches);
 
         $es = self::table('es');
-        $glossary = [];
 
         foreach (array_unique($matches[0]) as $token) {
             $key = strtoupper($token);

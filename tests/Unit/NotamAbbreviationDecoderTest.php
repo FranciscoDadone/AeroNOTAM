@@ -26,6 +26,14 @@ it('decodes notam text into spanish', function (string $input, string $expected)
         'DTHR 02 100M RWY AVBL 963M',
         'Umbral desplazado 02 100M pista disponible 963M',
     ],
+    'untranslated spanish fragment' => [
+        'RWY 11/29 CLSD AGUA SFC',
+        'Pista 11/29 cerrada agua en la superficie',
+    ],
+    'movement area' => [
+        'MOV AREA CLSD AGUA SFC',
+        'Área de movimiento cerrado agua en la superficie',
+    ],
 ]);
 
 /**
@@ -66,6 +74,20 @@ it('only reports abbreviations present in the text', function () {
     expect($glossary)->toHaveKey('RWY')
         ->and($glossary)->toHaveKey('CLSD')
         ->and($glossary)->not->toHaveKey('OBST');
+});
+
+/**
+ * A multi-word entry must reach the model as a unit: the token meanings of
+ * its parts ("MOV: mover", "SFC: superficie") contradict it.
+ */
+it('reports multi-word entries instead of their parts', function () {
+    $glossary = decoder()->glossaryFor('MOV AREA CLSD AGUA SFC');
+
+    expect($glossary)->toHaveKey('MOV AREA')
+        ->and($glossary)->toHaveKey('AGUA SFC')
+        ->and($glossary['AGUA SFC'])->toBe('agua en la superficie')
+        ->and($glossary)->not->toHaveKey('MOV')
+        ->and($glossary)->not->toHaveKey('SFC');
 });
 
 it('returns null for empty input', function () {

@@ -18,7 +18,7 @@ use Illuminate\Support\Str;
  * list sheet: one labelled button opening up to ten rows, each with a second
  * line under its caption. That is the only shape that fits a set that outgrew
  * three — an aerodrome's AIP documents, and the follow-up menu now that there
- * are six topics to offer.
+ * are seven topics to offer.
  *
  * It is the same thing to everything downstream either way: same ids, same
  * grammar, same tap coming back, only drawn differently.
@@ -134,7 +134,7 @@ final readonly class ReplyButton
      *
      * @var array<int, string>
      */
-    protected const MENU_ORDER = ['notam', 'metar', 'pista', 'taf', 'carta', 'crepusculo', 'info'];
+    protected const MENU_ORDER = ['notam', 'metar', 'pista', 'taf', 'carta', 'crepusculo', 'info', 'ubicacion'];
 
     /**
      * The caption each topic is offered under, and the line under it. A row's
@@ -151,6 +151,7 @@ final readonly class ReplyButton
         'carta' => ['📄 Cartas AIP', 'Aproximación, plano de aeródromo y demás documentos'],
         'crepusculo' => ['🌅 Salida/Puesta sol', 'Orto, ocaso y crepúsculos de hoy'],
         'info' => ['🛬 Ficha del aeródromo', 'Pistas, elevación, servicios y ubicación'],
+        'ubicacion' => ['📍 Ubicación', 'El aeródromo en el mapa, para abrir o compartir'],
     ];
 
     /**
@@ -162,6 +163,10 @@ final readonly class ReplyButton
      * passed in rather than guessed from $code, which holds the ANAC indicator
      * for exactly those aerodromes and is not always distinguishable by shape.
      *
+     * $withLocation is false where MADHEL publishes no coordinates for it: a pin
+     * is the whole of that answer, so without them the row would open onto an
+     * apology and nothing else.
+     *
      * $runwayWindId is the whole runway-wind row, or null for no row at all —
      * there is nothing to say for an aerodrome whose cabeceras are unknown.
      * The id arrives already built rather than assembled here, because that
@@ -170,12 +175,13 @@ final readonly class ReplyButton
      * AEROMET observes the locality instead. Building it twice is how the two
      * would drift.
      */
-    public static function menu(string $topic, string $code, bool $withCharts = true, ?string $runwayWindId = null): self
+    public static function menu(string $topic, string $code, bool $withCharts = true, ?string $runwayWindId = null, bool $withLocation = true): self
     {
         $offers = array_filter(self::MENU_ORDER, fn (string $offer) => match ($offer) {
             $topic => false,
             'carta' => $withCharts,
             'pista' => $runwayWindId !== null,
+            'ubicacion' => $withLocation,
             default => true,
         });
 

@@ -11,6 +11,7 @@ use App\DataObjects\PronareaForecast;
 use App\DataObjects\ReplyButton;
 use App\DataObjects\ReplyContext;
 use App\DataObjects\ReplyDocument;
+use App\DataObjects\ReplyLocation;
 use App\DataObjects\ReplyMenu;
 use App\DataObjects\SunTimes;
 use App\DataObjects\Taf;
@@ -252,13 +253,14 @@ class WhatsappBotService
     protected const BUTTON_UNSUBSCRIBE = '/^unsub:([A-Z]{4})$/';
 
     /**
-     * A tap on the follow-up menu: the same six questions reply() itself can
-     * answer, with the guessing removed. {3,4} because not every ANAC
-     * aerodrome has an ICAO code (Alta Gracia, AGR) and its NOTAM still answer
-     * fine without one — carta is the exception, and the menu leaves that row
-     * out rather than letting it be tapped.
+     * A tap on the follow-up menu: the questions reply() itself can answer, with
+     * the guessing removed, plus the pin — which is reachable this way only,
+     * having no question of its own to be asked in words. {3,4} because not
+     * every ANAC aerodrome has an ICAO code (Alta Gracia, AGR) and its NOTAM
+     * still answer fine without one — carta is the exception, and the menu
+     * leaves that row out rather than letting it be tapped.
      */
-    protected const BUTTON_ASK = '/^ask:(notam|metar|taf|carta|crepusculo|info):([A-Z]{3,4})$/';
+    protected const BUTTON_ASK = '/^ask:(notam|metar|taf|carta|crepusculo|info|ubicacion):([A-Z]{3,4})$/';
 
     /**
      * A tap on the "Consultar AEROMET" offer under an empty METAR. The WMO/OMM
@@ -439,6 +441,7 @@ class WhatsappBotService
                 'carta' => $this->cartaReply($indicator, ''),
                 'crepusculo' => $this->sunReplyFor($indicator, $from),
                 'info' => $this->infoReply($indicator, $from),
+                'ubicacion' => $this->locationReply($indicator, $from),
                 default => $this->notamReply($indicator, $from),
             };
         }
@@ -844,7 +847,6 @@ class WhatsappBotService
             $indicator,
             $this->enricher->enrich($notams),
             $this->airports->isClosed($indicator),
-            $this->runwayWindOffer($indicator),
         )->withMenu($this->menuFor('notam', $indicator, $from));
     }
 
@@ -1307,6 +1309,44 @@ class WhatsappBotService
             $menu?->button,
             $this->sunTimesFor($indicator),
         );
+    }
+
+    /**
+     * The aerodrome as a pin, which is the one thing the ficha's coordinates
+     * cannot be: a line of degrees and minutes has to be copied somewhere else
+     * before it takes anybody anywhere, and a WhatsApp location opens straight
+     * into whatever maps app the reader already has.
+     *
+     * Same coordinates MADHEL publishes and the ficha prints, so the two can
+     * never disagree. Nothing rides on the pin itself — WhatsApp draws no
+     * buttons on a location — so the follow-up menu comes as the message after
+     * it, which is where withMenu() puts it anyway.
+     */
+    protected function locationReply(string $indicator, ?string $from): WhatsappReply
+    {
+        $airport = $this->airports->find($indicator);
+
+        if ($airport === null) {
+            return WhatsappReply::of($this->helpMessage());
+        }
+
+        $name = $airport->name;
+
+        // The menu leaves the row out when there are no coordinates, so this is
+        // reachable only by a tap on a sheet built before an import removed
+        // them. Says so rather than sending a pin at zero-zero.
+        if ($airport->latitude === null || $airport->longitude === null) {
+            return WhatsappReply::of(
+                "MADHEL no publica las coordenadas de *{$name}* ({$indicator}), así que no puedo mandarte la ubicación."
+            )->withMenu($this->menuFor('ubicacion', $indicator, $from));
+        }
+
+        return WhatsappReply::ofLocation(new ReplyLocation(
+            $airport->latitude,
+            $airport->longitude,
+            $name,
+            $this->airportPlace($airport) ?? '',
+        ))->withMenu($this->menuFor('ubicacion', $indicator, $from));
     }
 
     /**
@@ -1973,7 +2013,8 @@ class WhatsappBotService
             return null;
         }
 
-        $name = $this->airports->nameFor($indicator) ?? $indicator;
+        $airport = $this->airports->find($indicator);
+        $name = $airport === null ? $indicator : $airport->name;
 
         // Offered wherever the aerodrome has cabeceras to answer about, with no
         // regard for whether the answer above already carries the same button.
@@ -1990,6 +2031,7 @@ class WhatsappBotService
                 $code,
                 withCharts: $icao !== null && $this->aipPublishesFor($icao),
                 runwayWindId: $runwayWind?->buttons[0]['id'],
+                withLocation: $airport !== null && $airport->latitude !== null && $airport->longitude !== null,
             ),
         );
     }
@@ -2754,13 +2796,13 @@ class WhatsappBotService
      * aeronautical notice would silently hide exactly the kind of detail
      * (a closure window, a contact number) the pilot needs.
      *
-     * $button rides on the last message only — see WhatsappReply::outbound() —
-     * which is where "y de paso, ¿cómo está el viento en las pistas?" belongs:
-     * after the notices, not interrupting them.
+     * Nothing rides on the last message: the runway-wind offer used to, and the
+     * follow-up menu already carries that row, so the reader lost nothing when
+     * it went — and the notices get the full plain-text budget back.
      *
      * @param  array<int, Notam>  $notams
      */
-    protected function formatNotams(string $airportName, string $indicator, array $notams, bool $closed = false, ?ReplyButton $button = null): WhatsappReply
+    protected function formatNotams(string $airportName, string $indicator, array $notams, bool $closed = false): WhatsappReply
     {
         // A closed aerodrome usually has nothing active to report, and "no hay
         // NOTAM activos ✅" on its own reads as "está todo bien" — the opposite
@@ -2770,10 +2812,7 @@ class WhatsappBotService
         $closedNotice = $closed ? "\n⛔ *Aeródromo cerrado*" : '';
 
         if ($notams === []) {
-            return WhatsappReply::ofMany(
-                ["No hay NOTAM activos para *{$airportName}* ({$indicator}) en este momento. ✅".$closedNotice],
-                $button,
-            );
+            return WhatsappReply::of("No hay NOTAM activos para *{$airportName}* ({$indicator}) en este momento. ✅".$closedNotice);
         }
 
         $header = "✈️ *{$airportName}* ({$indicator})".$closedNotice;
@@ -2781,10 +2820,7 @@ class WhatsappBotService
 
         // Reserve room for the header and the widest plausible "(99/99) "
         // prefix, so the assembled message still fits once both are added.
-        // A message that carries buttons is an interactive one, and WhatsApp
-        // caps those far shorter than a plain one.
-        $budget = ($button === null ? self::MAX_MESSAGE_LENGTH : self::MAX_INTERACTIVE_BODY_LENGTH)
-            - mb_strlen($header) - 12;
+        $budget = self::MAX_MESSAGE_LENGTH - mb_strlen($header) - 12;
 
         $parts = [];
 
@@ -2809,7 +2845,7 @@ class WhatsappBotService
             }
         }
 
-        return WhatsappReply::ofMany($this->withHeader($header, $parts), $button);
+        return WhatsappReply::ofMany($this->withHeader($header, $parts));
     }
 
     /**

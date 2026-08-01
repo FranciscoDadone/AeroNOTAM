@@ -1118,8 +1118,7 @@ it('answers the sun times for a city', function () {
         ->toContain('Crepúsculo matutino: 11:01 UTC (08:01 local)')
         ->toContain('Salida del sol: 11:30 UTC (08:30 local)')
         ->toContain('Puesta del sol: 21:12 UTC (18:12 local)')
-        ->toContain('Crepúsculo vespertino: 21:40 UTC (18:40 local)')
-        ->toContain('Servicio de Hidrografía Naval');
+        ->toContain('Crepúsculo vespertino: 21:40 UTC (18:40 local)');
 
     Carbon::setTestNow();
 });
@@ -1311,9 +1310,9 @@ it('offers the other topics after answering about an aerodrome', function (strin
         ->and(buttonIds($reply->menu->button))->toBe($offers)
         ->and($reply->menu->body)->toContain('EZEIZA');
 })->with([
-    'notam' => ['notams EZE', ['ask:metar:SAEZ', 'ask:taf:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ']],
-    'metar' => ['metar EZE', ['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ']],
-    'taf' => ['taf EZE', ['ask:notam:SAEZ', 'ask:metar:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ']],
+    'notam' => ['notams EZE', ['ask:metar:SAEZ', 'ask:taf:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ', 'ask:ubicacion:SAEZ']],
+    'metar' => ['metar EZE', ['ask:notam:SAEZ', 'ask:taf:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ', 'ask:ubicacion:SAEZ']],
+    'taf' => ['taf EZE', ['ask:notam:SAEZ', 'ask:metar:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ', 'ask:ubicacion:SAEZ']],
 ]);
 
 /**
@@ -1481,7 +1480,7 @@ it('keeps offering the other topics after a tapped one', function () {
     $reply = bot()->reply('✈️ NOTAMs', PHONE, 'ask:notam:SAEZ');
 
     expect(buttonIds($reply->menu?->button))
-        ->toBe(['ask:metar:SAEZ', 'ask:taf:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ']);
+        ->toBe(['ask:metar:SAEZ', 'ask:taf:SAEZ', 'ask:carta:SAEZ', 'ask:crepusculo:SAEZ', 'ask:info:SAEZ', 'ask:ubicacion:SAEZ']);
 });
 
 it('offers the watch again under a metar reached by tapping', function () {
@@ -1497,7 +1496,7 @@ it('carries an aerodrome without an icao code in the menu payload', function () 
     fakeAnac();
 
     expect(buttonIds(bot()->reply('notams alta gracia', PHONE)->menu?->button))
-        ->toBe(['ask:metar:AGR', 'ask:taf:AGR', 'ask:crepusculo:AGR', 'ask:info:AGR']);
+        ->toBe(['ask:metar:AGR', 'ask:taf:AGR', 'ask:crepusculo:AGR', 'ask:info:AGR', 'ask:ubicacion:AGR']);
 });
 
 it('answers honestly when a tapped topic has nothing for that aerodrome', function () {
@@ -1572,7 +1571,7 @@ it('offers the menu for a sun answer that names an aerodrome', function (string 
 
     expect($reply->menu)->not->toBeNull()
         ->and(buttonIds($reply->menu->button))
-        ->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'ask:taf:SAZR', 'ask:carta:SAZR', 'ask:info:SAZR']);
+        ->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'ask:taf:SAZR', 'ask:carta:SAZR', 'ask:info:SAZR', 'ask:ubicacion:SAZR']);
 
     Carbon::setTestNow();
 })->with([
@@ -2032,12 +2031,14 @@ it('reports a northerly wind as 360 degrees, not 000', function () {
 
 /*
 |--------------------------------------------------------------------------
-| El botón de viento en pista bajo los NOTAM
+| Los NOTAM no llevan botón propio
 |--------------------------------------------------------------------------
 |
-| Same offer as under a METAR, in the one place a NOTAM reply had room for it:
-| its own last message. The follow-up menu is already at the three quick
-| replies WhatsApp will render.
+| The runway-wind offer used to ride on the last NOTAM message. It is a row of
+| the follow-up menu now, offered on every answer about the aerodrome, so
+| repeating it directly under the notices bought nothing and cost the notices
+| the plain-text budget — a message carrying a button is a template, capped at
+| 1024 characters rather than 1600.
 |
 */
 
@@ -2054,55 +2055,18 @@ function seedAeroparqueRunways(): void
     }
 }
 
-it('offers the runway wind under a notam reply', function () {
-    fakeAnac();
-    seedAeroparqueRunways();
-    config(['services.twilio.content_sid_pista' => 'HXpista']);
-
-    $reply = bot()->reply('notams aeroparque', PHONE);
-
-    expect(buttonIds($reply->button))->toBe(['pista:SABE']);
-});
-
-/**
- * The offer stands alone here — unlike under a METAR, where it shares a
- * template with the watch button and cannot be dropped by itself — so it is
- * only sent when there is something behind it.
- */
-it('does not offer the runway wind for an aerodrome with no runways on file', function () {
-    fakeAnac();
-    config(['services.twilio.content_sid_pista' => 'HXpista']);
-
-    expect(bot()->reply('notams aeroparque', PHONE)->button)->toBeNull();
-});
-
-it('offers the runway wind even when there are no notams to report', function () {
-    fakeAnac(Http::response('error', 500));
-    seedAeroparqueRunways();
-    config(['services.twilio.content_sid_pista' => 'HXpista']);
-
-    $reply = bot()->reply('notams aeroparque', PHONE);
-
-    expect($reply->messages[0])->toContain('No hay NOTAM activos')
-        ->and(buttonIds($reply->button))->toBe(['pista:SABE']);
-});
-
-/**
- * Three NOTAMs are three messages. Repeating the button on each would read as
- * three separate offers rather than one.
- */
-it('puts the runway-wind button on the last notam message only', function () {
+it('sends the notams with no button of their own', function () {
     fakeAnac();
     seedAeroparqueRunways();
 
     $outbound = bot()->reply('notams aeroparque', PHONE)->outbound();
 
     // Three NOTAM messages plus the follow-up menu, which is a message of its
-    // own and carries its own buttons.
+    // own and carries the runway-wind row along with the rest.
     expect(count($outbound))->toBe(4)
         ->and($outbound[0][1])->toBeNull()
         ->and($outbound[1][1])->toBeNull()
-        ->and(buttonIds($outbound[2][1]))->toBe(['pista:SABE'])
+        ->and($outbound[2][1])->toBeNull()
         ->and(buttonIds($outbound[3][1]))->toBe([
             'ask:metar:SABE',
             'pista:SABE',
@@ -2110,26 +2074,35 @@ it('puts the runway-wind button on the last notam message only', function () {
             'ask:carta:SABE',
             'ask:crepusculo:SABE',
             'ask:info:SABE',
+            'ask:ubicacion:SABE',
         ]);
 });
 
+it('sends a notam-less reply with no button either', function () {
+    fakeAnac(Http::response('error', 500));
+    seedAeroparqueRunways();
+
+    $reply = bot()->reply('notams aeroparque', PHONE);
+
+    expect($reply->messages[0])->toContain('No hay NOTAM activos')
+        ->and($reply->button)->toBeNull();
+});
+
 /**
- * A message carrying a button is a content template, and WhatsApp caps those
- * at 1024 characters rather than 1600. Splitting to the plain-text budget
- * would produce a message Twilio rejects outright.
+ * Carrying no button, the notices split to the plain-text budget rather than
+ * the shorter one a template gets.
  */
-it('splits a notam that carries a button to the smaller template budget', function () {
+it('splits a long notam to the plain-text budget', function () {
     $long = str_repeat('OBST CRANE ERECTED NEAR THR RWY 13 HGT 45M AGL. ', 80);
 
     fakeAnac(Http::response(pibWith($long)));
     seedAeroparqueRunways();
-    config(['services.twilio.content_sid_pista' => 'HXpista']);
 
     $reply = bot()->reply('notams aeroparque', PHONE);
 
-    foreach ($reply->messages as $message) {
-        expect(mb_strlen($message))->toBeLessThanOrEqual(1024);
-    }
+    $lengths = array_map('mb_strlen', $reply->messages);
+
+    expect(max($lengths))->toBeGreaterThan(1024)->toBeLessThanOrEqual(1600);
 });
 
 /*
@@ -2575,7 +2548,7 @@ it('offers the other topics under the ficha', function () {
     // The ficha carries the menu's buttons itself rather than following the
     // answer with a menu of its own — see infoReply().
     expect(buttonIds(bot()->reply('osa', PHONE)->button))
-        ->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'pista:SAZR', 'ask:taf:SAZR', 'ask:carta:SAZR', 'ask:crepusculo:SAZR']);
+        ->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'pista:SAZR', 'ask:taf:SAZR', 'ask:carta:SAZR', 'ask:crepusculo:SAZR', 'ask:ubicacion:SAZR']);
 });
 
 it('answers a tapped ficha button without any text matching', function () {
@@ -2619,8 +2592,68 @@ it('carries the menu on the ficha itself instead of after it', function () {
             'ask:taf:SAZR',
             'ask:carta:SAZR',
             'ask:crepusculo:SAZR',
+            'ask:ubicacion:SAZR',
         ])
         ->and($reply->outbound())->toHaveCount(1);
+});
+
+/**
+ * The pin is the one answer with no text at all: WhatsApp draws the name and
+ * the place under the location itself, so a message repeating them would say
+ * nothing the reader cannot already see.
+ */
+it('answers the location row with a pin on the aerodrome', function () {
+    seedSantaRosaFicha();
+
+    $reply = bot()->reply('📍 Ubicación', PHONE, 'ask:ubicacion:SAZR');
+
+    expect($reply->messages)->toBeEmpty()
+        ->and($reply->location?->latitude)->toBe(-36.5883333)
+        ->and($reply->location?->longitude)->toBe(-64.2758333)
+        ->and($reply->location?->name)->toContain('SANTA ROSA')
+        ->and($reply->location?->address)->toBe('4,5 km al nor-noreste de Santa Rosa (La Pampa)');
+});
+
+/**
+ * Nothing rides on a location message, so the way onward has to be the message
+ * after it — otherwise the pin is a dead end.
+ */
+it('follows the pin with the menu, without re-offering the pin', function () {
+    seedSantaRosaFicha();
+
+    $reply = bot()->reply('📍 Ubicación', PHONE, 'ask:ubicacion:SAZR');
+
+    expect($reply->button)->toBeNull()
+        ->and(buttonIds($reply->menu?->button))
+        ->toContain('ask:info:SAZR')
+        ->not->toContain('ask:ubicacion:SAZR');
+});
+
+/**
+ * A pin is the whole of that answer, so without coordinates there is nothing to
+ * send — the row is withheld rather than leading to an apology.
+ */
+it('leaves the location row out for an aerodrome with no coordinates', function () {
+    seedSantaRosaFicha();
+    Airport::where('anac_code', 'OSA')->update(['latitude' => null, 'longitude' => null]);
+
+    $reply = bot()->reply('osa', PHONE);
+
+    expect(buttonIds($reply->button))->not->toContain('ask:ubicacion:SAZR');
+});
+
+/**
+ * Reachable only by tapping a sheet built before an import dropped them, but a
+ * pin at zero-zero is the Gulf of Guinea, not an aerodrome.
+ */
+it('says so rather than pinning an aerodrome with no coordinates', function () {
+    seedSantaRosaFicha();
+    Airport::where('anac_code', 'OSA')->update(['latitude' => null, 'longitude' => null]);
+
+    $reply = bot()->reply('📍 Ubicación', PHONE, 'ask:ubicacion:SAZR');
+
+    expect($reply->location)->toBeNull()
+        ->and($reply->messages[0])->toContain('no publica las coordenadas');
 });
 
 /**

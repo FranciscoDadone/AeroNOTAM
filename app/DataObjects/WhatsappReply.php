@@ -15,7 +15,9 @@ namespace App\DataObjects;
  *
  * The documents lead: an attachment carries its own caption, so it says what it
  * is on its own, and whatever text follows is about the whole set of them
- * rather than an introduction to files that have not arrived yet.
+ * rather than an introduction to files that have not arrived yet. A pin travels
+ * the same way and for the same reason — it names the aerodrome underneath
+ * itself, so anything said after it is a follow-up rather than an introduction.
  */
 final readonly class WhatsappReply
 {
@@ -28,6 +30,7 @@ final readonly class WhatsappReply
         public ?ReplyButton $button = null,
         public ?ReplyMenu $menu = null,
         public array $documents = [],
+        public ?ReplyLocation $location = null,
     ) {}
 
     public static function of(string ...$messages): self
@@ -52,9 +55,20 @@ final readonly class WhatsappReply
         return new self(array_values($messages), $button, null, array_values($documents));
     }
 
+    /**
+     * A pin, and nothing else to say: what the location row answers with. The
+     * menu that follows it is attached the ordinary way, so the reader still
+     * gets somewhere to go from a message that carries no buttons of its own —
+     * WhatsApp draws none on a location.
+     */
+    public static function ofLocation(ReplyLocation $location): self
+    {
+        return new self([], null, null, [], $location);
+    }
+
     public function withMenu(?ReplyMenu $menu): self
     {
-        return new self($this->messages, $this->button, $menu, $this->documents);
+        return new self($this->messages, $this->button, $menu, $this->documents, $this->location);
     }
 
     /**

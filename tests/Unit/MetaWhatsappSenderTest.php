@@ -169,6 +169,38 @@ it('sends a document by link', function () {
     });
 });
 
+/**
+ * A pin rather than a link: Meta's own location message, which opens in the
+ * reader's maps app instead of a browser.
+ */
+it('sends a location as coordinates with a name under them', function () {
+    fakeGraph();
+
+    sender()->sendLocation('whatsapp:+5491122334455', -36.5883333, -64.2758333, 'SANTA ROSA', 'Santa Rosa (La Pampa)');
+
+    Http::assertSent(function (Request $request) {
+        return $request['type'] === 'location'
+            && $request['location'] === [
+                'latitude' => -36.5883333,
+                'longitude' => -64.2758333,
+                'name' => 'SANTA ROSA',
+                'address' => 'Santa Rosa (La Pampa)',
+            ];
+    });
+});
+
+/**
+ * The address is optional to Meta and unknown for an aerodrome MADHEL places
+ * by nothing but its coordinates — sent empty it would draw a blank line.
+ */
+it('leaves an empty address out of a location', function () {
+    fakeGraph();
+
+    sender()->sendLocation('whatsapp:+5491122334455', -36.5883333, -64.2758333, 'SANTA ROSA', '');
+
+    Http::assertSent(fn (Request $request) => ! array_key_exists('address', $request['location']));
+});
+
 it('marks the inbound message read to raise the typing indicator', function () {
     fakeGraph();
 

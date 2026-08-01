@@ -48,6 +48,16 @@ interface WhatsappSender
     public function sendDocument(string $to, string $url, string $caption, string $filename): void;
 
     /**
+     * Deliver a pin — WhatsApp's own location message, which opens in the
+     * reader's maps app.
+     *
+     * The name and address are drawn under the pin and are optional to
+     * WhatsApp; the coordinates are not. Nothing tappable can ride on one, so
+     * whatever else is being offered has to travel in a message of its own.
+     */
+    public function sendLocation(string $to, float $latitude, float $longitude, string $name, string $address): void;
+
+    /**
      * Show the "typing…" dots to whoever sent us $inboundMessageId, so the
      * chat doesn't look dead while we build the reply.
      *

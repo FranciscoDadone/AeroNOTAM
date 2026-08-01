@@ -79,6 +79,20 @@ class MetaWhatsappSender implements WhatsappSender
         ])->throw();
     }
 
+    public function sendLocation(string $to, float $latitude, float $longitude, string $name, string $address): void
+    {
+        $this->post([
+            'to' => $this->recipient($to),
+            'type' => 'location',
+            'location' => array_filter([
+                'latitude' => $latitude,
+                'longitude' => $longitude,
+                'name' => $name,
+                'address' => $address,
+            ], fn (mixed $value) => $value !== ''),
+        ])->throw();
+    }
+
     /**
      * The same endpoint as a message: marking the inbound message read is what
      * puts the dots up, and the two are one request.

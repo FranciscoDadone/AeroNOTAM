@@ -664,16 +664,14 @@ que tiene todo esto. Sobre las respuestas mismas queda muy poco:
 - Bajo cada METAR, **🔔 Avisarme 12 h** y nada más. Desaparece cuando ya hay un
   aviso corriendo para ese aeródromo: un botón que promete algo que ya pasa,
   al tocarlo, parece que falló. En su lugar va una línea de texto.
-- Bajo el último mensaje de una respuesta de NOTAM, **🛬 Viento en pista**, y
-  sólo si hay rumbos de pista cargados — un botón que lleva a _"no tengo los
-  rumbos de pista"_ es peor que ningún botón, y además un mensaje con botones
-  se parte al presupuesto más corto (1024 caracteres en vez de los 1500
-  habituales), que costaría mensajes de más para nada.
+- Bajo los NOTAM, nada.
 
-El 🛬 **no** va bajo el METAR aunque sea ahí donde más se pregunta: vive en la
-hoja de opciones, que se ofrece en todas las respuestas del aeródromo y no sólo
-en esa. Tenerlo en los dos lados era el mismo ofrecimiento hecho dos veces en el
-mismo intercambio.
+El 🛬 **Viento en pista** no va bajo el METAR ni bajo los NOTAM aunque sea ahí
+donde más se pregunta: vive en la hoja de opciones, que se ofrece en todas las
+respuestas del aeródromo y no sólo en esas. Tenerlo en los dos lados era el
+mismo ofrecimiento hecho dos veces en el mismo intercambio, y encima un mensaje
+con botones se parte al presupuesto más corto (1024 caracteres en vez de los
+1500 habituales), que costaba mensajes de más por nada.
 
 **Cuando el conjunto no entra en tres, WhatsApp tiene otra forma**: un botón
 que abre una hoja de hasta **diez filas**, cada una con un título de 24
@@ -692,14 +690,15 @@ así que es el último tramo — y el título entero abajo, donde entra.
 **Y es lo que usa el menú de seguimiento**, que es un mensaje aparte y no más
 botones sobre la respuesta, porque un mensaje dibuja un solo juego. Ofrece los
 otros temas del mismo aeródromo sin repetir el que se acaba de contestar, y son
-seis: NOTAM, METAR, TAF, cartas de la AIP, crepúsculos y la ficha. Con tres
+siete: NOTAM, METAR, TAF, cartas de la AIP, crepúsculos, la ficha y la
+ubicación. Con tres
 botones había que elegir cuáles esconder, y las cartas quedaban afuera siempre
 —alcanzables sólo escribiendo _"carta de aproximación de Tandil"_, que es
 justamente lo que nadie adivina que puede pedir—, así que el menú pasó a ser
 una hoja y entran todos.
 
-Dos filas son condicionadas, y las dos por la misma razón: una fila que lleva a
-_"no tengo eso"_ es peor que ninguna.
+Tres filas son condicionadas, y las tres por la misma razón: una fila que lleva
+a _"no tengo eso"_ es peor que ninguna.
 
 La de **viento en pista** sale sólo si hay rumbos cargados. Su identificador
 conserva su propia gramática —`pista:`, no `ask:`— y se arma reusando
@@ -726,6 +725,15 @@ Esa fila sale en **todas** las respuestas del aeródromo, no sólo donde parecer
 más pertinente. Una hoja que hay que abrir para ver qué tiene no puede además
 cambiar de contenido según lo que se acabó de preguntar: si está bajo la ficha,
 tiene que estar también bajo el TAF.
+
+La de **ubicación** sale sólo si MADHEL publica coordenadas, que es lo único que
+esa respuesta tiene para mandar. Y es la única del menú que no se puede pedir
+escribiendo: no hay palabras que la nombren sin pisar las de la ficha —_"dónde
+queda Tandil"_ pide la ficha, que ya trae la ubicación en texto—, así que existe
+como fila y nada más. La respuesta es un mensaje `location` de la Cloud API: un
+pin que abre en la app de mapas del lector, en vez de un par de coordenadas que
+hay que copiar a algún lado. Como sobre un pin no se dibuja nada, el menú lo
+sigue en un mensaje aparte.
 
 **La ficha lleva la hoja encima en vez de que la siga**: es la respuesta por
 defecto —todo lo que el bot no puede ubicar cae ahí—, así que es donde alguien

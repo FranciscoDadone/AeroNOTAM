@@ -45,6 +45,14 @@ class NotamDecoderAgent implements Agent
           the glossary, use your own best knowledge of ICAO/FAA NOTAM contractions
           rather than leaving it as-is -- only leave a token unchanged if it is
           truly not an abbreviation (e.g. a proper name).
+        - The source often states the *reason* for a closure or restriction
+          immediately after it, with no linking word ("RWY 11/29 CLSD AGUA
+          SFC"). That reason is part of the notice: join it with "por" or
+          "debido a" ("pista 11/29 cerrada por agua en la superficie"), never
+          drop it and never fold it into the thing being closed.
+        - ANAC leaves Spanish words untranslated inside the English text. They
+          are content, not noise -- keep what they say instead of skipping over
+          them.
         - If you are not confident what a word or token means, leave that specific
           word unchanged rather than guessing -- never invent a plausible-sounding
           replacement. A literal untranslated word is always better than a

@@ -59,6 +59,13 @@ class WhatsappTestController extends Controller
                 'url' => $documento->url,
                 'texto' => $documento->caption,
             ], $respuesta->documents),
+            // The pin that would go out with the answer, when it is one.
+            'ubicacion' => $respuesta->location === null ? null : [
+                'latitud' => $respuesta->location->latitude,
+                'longitud' => $respuesta->location->longitude,
+                'nombre' => $respuesta->location->name,
+                'direccion' => $respuesta->location->address,
+            ],
             // Empty when the reply carries no offer; otherwise the ids a tap
             // would send back, so the JSON shows what each button would do.
             'botones_ofrecidos' => $respuesta->button === null

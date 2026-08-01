@@ -28,6 +28,11 @@ class FakeWhatsappSender implements WhatsappSender
     public array $documents = [];
 
     /**
+     * @var array<int, array{to: string, latitude: float, longitude: float, name: string, address: string}>
+     */
+    public array $locations = [];
+
+    /**
      * @var array<int, string>
      */
     public array $typing = [];
@@ -78,6 +83,23 @@ class FakeWhatsappSender implements WhatsappSender
         }
 
         $this->documents[] = ['to' => $to, 'url' => $url, 'caption' => $caption, 'filename' => $filename];
+    }
+
+    public function sendLocation(string $to, float $latitude, float $longitude, string $name, string $address): void
+    {
+        $this->attempts++;
+
+        if ($this->shouldFail) {
+            throw new RuntimeException('WhatsApp no disponible.');
+        }
+
+        $this->locations[] = [
+            'to' => $to,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'name' => $name,
+            'address' => $address,
+        ];
     }
 
     public function indicateTyping(string $inboundMessageId): void

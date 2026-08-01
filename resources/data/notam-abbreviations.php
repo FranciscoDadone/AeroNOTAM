@@ -1540,6 +1540,9 @@ return [
      * Multi-word contractions, matched before tokenization.
      */
     'phrases_en' => [
+        'AGUA EN SFC' => 'water on the surface',
+        'AGUA SFC' => 'water on the surface',
+        'MOV AREA' => 'movement area',
         'BA GOOD TO MEDIUM' => 'braking action good to medium',
         'BA MEDIUM TO POOR' => 'braking action medium to poor',
         'BA GOOD' => 'braking action good',
@@ -1555,6 +1558,12 @@ return [
      * Multi-word contractions and English idioms, matched before tokenization.
      */
     'phrases_es' => [
+        // ANAC leaves these Spanish fragments untranslated in the English
+        // field. Word by word they read as "superficie de agua" / "mover
+        // área", which inverts the meaning, so they are matched as a unit.
+        'AGUA EN SFC' => 'agua en la superficie',
+        'AGUA SFC' => 'agua en la superficie',
+        'MOV AREA' => 'área de movimiento',
         'BA GOOD TO MEDIUM' => 'acción de frenado buena a media',
         'BA MEDIUM TO POOR' => 'acción de frenado media a mala',
         'BA GOOD' => 'acción de frenado buena',

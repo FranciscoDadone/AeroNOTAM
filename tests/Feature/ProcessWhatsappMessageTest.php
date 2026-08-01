@@ -105,7 +105,7 @@ it('sends the menu as a list on a message of its own after the answer', function
         ->and($this->sender->sentWithList)->toHaveCount(1)
         ->and($this->sender->sentWithList[0]['body'])->toContain('AEROPARQUE')
         ->and($this->sender->listRowIds())
-        ->toBe(['ask:metar:SABE', 'ask:taf:SABE', 'ask:carta:SABE', 'ask:crepusculo:SABE', 'ask:info:SABE']);
+        ->toBe(['ask:metar:SABE', 'ask:taf:SABE', 'ask:carta:SABE', 'ask:crepusculo:SABE', 'ask:info:SABE', 'ask:ubicacion:SABE']);
 });
 
 /**
@@ -143,6 +143,39 @@ it('sends the charts first and offers the rest as a list', function () {
         ->and($this->sender->sentWithList)->toHaveCount(1)
         ->and($this->sender->listRowIds())->toBe(['doc:SAZR:0', 'doc:SAZR:1'])
         ->and($this->sender->sentWithButtons)->toBeEmpty();
+});
+
+/**
+ * The pin goes out as WhatsApp's own location message — nothing tappable can
+ * ride on one, so the menu follows it as a message of its own.
+ */
+it('sends the location as a pin and the menu after it', function () {
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', '📍 Ubicación', null, 'ask:ubicacion:SABE'))
+        ->handle(app(WhatsappBotService::class), $this->sender);
+
+    expect($this->sender->locations)->toHaveCount(1)
+        ->and($this->sender->locations[0]['to'])->toBe('whatsapp:+5491111111111')
+        ->and($this->sender->locations[0]['latitude'])->toEqualWithDelta(-34.5589, 0.0001)
+        ->and($this->sender->locations[0]['name'])->toContain('AEROPARQUE')
+        ->and($this->sender->sent)->toBeEmpty()
+        ->and($this->sender->sentWithList)->toHaveCount(1)
+        ->and($this->sender->listRowIds())->toContain('ask:info:SABE');
+});
+
+/**
+ * Same reason as the captions below: a pin leaves no text behind it, and the
+ * panel would show the row answered with nothing but the menu that followed.
+ */
+it('logs the pin it sent', function () {
+    $log = WhatsappMessage::create([
+        'phone' => 'whatsapp:+5491111111111',
+        'body' => '📍 Ubicación',
+    ]);
+
+    (new ProcessWhatsappMessage('whatsapp:+5491111111111', '📍 Ubicación', null, 'ask:ubicacion:SABE', $log))
+        ->handle(app(WhatsappBotService::class), $this->sender);
+
+    expect($log->fresh()->reply[0])->toContain('AEROPARQUE')->toContain('-34.5588');
 });
 
 /**

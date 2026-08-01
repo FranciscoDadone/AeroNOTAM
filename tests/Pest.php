@@ -516,6 +516,11 @@ function rejectingSender(int $errorCode): WhatsappSender
             $this->reject();
         }
 
+        public function sendLocation(string $to, float $latitude, float $longitude, string $name, string $address): void
+        {
+            $this->reject();
+        }
+
         public function indicateTyping(string $inboundMessageId): void {}
 
         protected function reject(): void

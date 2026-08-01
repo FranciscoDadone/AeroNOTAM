@@ -7,7 +7,7 @@ use App\DataObjects\ReplyButton;
  * WhatsappBotService::BUTTON_ASK, written out. Every row the menu emits has to
  * match it, whichever topic the menu follows.
  */
-const MENU_GRAMMAR = '/^ask:(notam|metar|taf|carta|crepusculo|info):[A-Z]{3,4}$/';
+const MENU_GRAMMAR = '/^ask:(notam|metar|taf|carta|crepusculo|info|ubicacion):[A-Z]{3,4}$/';
 
 /**
  * @param  array<int, string>  $titles
@@ -144,11 +144,11 @@ it('never re-offers the topic it follows', function (string $topic) {
     foreach (array_column(ReplyButton::menu($topic, 'SAEZ')->buttons, 'id') as $id) {
         expect($id)->not->toStartWith("ask:{$topic}:");
     }
-})->with(['notam', 'metar', 'taf', 'carta', 'crepusculo', 'info']);
+})->with(['notam', 'metar', 'taf', 'carta', 'crepusculo', 'info', 'ubicacion']);
 
 /**
  * The menu is drawn as a sheet rather than buttons, which is the whole reason
- * every topic fits: three buttons could never hold six.
+ * every topic fits: three buttons could never hold seven.
  */
 it('draws the follow-up menu as a list', function () {
     $menu = ReplyButton::menu('info', 'SAEZ');
@@ -160,6 +160,7 @@ it('draws the follow-up menu as a list', function () {
             'ask:taf:SAEZ',
             'ask:carta:SAEZ',
             'ask:crepusculo:SAEZ',
+            'ask:ubicacion:SAEZ',
         ]);
 });
 
@@ -172,5 +173,16 @@ it('leaves the charts out for an aerodrome with no icao', function () {
     $ids = array_column(ReplyButton::menu('info', 'AGR', withCharts: false)->buttons, 'id');
 
     expect($ids)->not->toContain('ask:carta:AGR')
+        ->and($ids)->toContain('ask:notam:AGR');
+});
+
+/**
+ * A pin is the whole of that answer, so an aerodrome MADHEL publishes no
+ * coordinates for has nothing to send and the row goes.
+ */
+it('leaves the pin out for an aerodrome with no coordinates', function () {
+    $ids = array_column(ReplyButton::menu('info', 'AGR', withLocation: false)->buttons, 'id');
+
+    expect($ids)->not->toContain('ask:ubicacion:AGR')
         ->and($ids)->toContain('ask:notam:AGR');
 });

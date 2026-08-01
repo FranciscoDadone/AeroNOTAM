@@ -26,7 +26,8 @@ ANAC (scraping HTML) → AnacNotamService                → NotamEnricher → A
 SMN  (scraping HTML) ┐                                                 → Bot WhatsApp
 NOAA (respaldo, API) ┼→ MetarService (caché + failover) → MetarEnricher
                      └→ TafService   (caché + failover) → TafEnricher
-SHN  (scraping HTML) → ShnSunService (caché)                            → Bot WhatsApp
+SHN  (scraping HTML) → ShnSunService (caché) ┐
+coordenadas MADHEL   → SunCalculator         ┴→ crepúsculo             → Bot WhatsApp
 
 MADHEL      (API JSON) ┐
 OurAirports (CSV)      ┼→ notams:import-runways → tabla runways → RunwayWind
@@ -52,7 +53,8 @@ AIP (PDF, scraping)    → notams:import-aip-details → tabla airports → fich
   son los mismos, porque el problema de acceder al SMN es el mismo.
 - **`ShnSunService`** es el único que no habla de aeronáutica sino de astronomía:
   trae del SHN la tabla de salida, puesta y crepúsculo civil. Sólo lo usa el bot,
-  y sólo por ciudad — ver [Crepúsculo](#crepúsculo-hasta-qué-hora-hay-luz).
+  y sólo por ciudad; donde el SHN no publica, **`SunCalculator`** saca lo mismo de
+  las coordenadas del aeródromo — ver [Crepúsculo](#crepúsculo-hasta-qué-hora-hay-luz).
 - **`MetarConditions`** es lo único que no lee para mostrar sino para comparar:
   saca del METAR los cinco grupos que deciden si un cambio merece despertar a
   alguien. Es lo que hace posible la suscripción "avisame si cambia" sin
@@ -489,15 +491,32 @@ antes de que oscurezca, y esa media hora es la diferencia entre llegar de día y
 llegar de noche. El que se publica es el **crepúsculo civil**, que es el que usa
 la reglamentación.
 
-La fuente es el [Servicio de Hidrografía Naval](https://www.hidro.gov.ar/observatorio/Astronomia.asp),
-la autoridad argentina en la materia, y de ahí sale la única limitación de esta
-respuesta: **el SHN publica 34 ciudades, no los 712 aeródromos**. Un aeródromo
-que sirve a una de esas ciudades contesta por ella — Ezeiza, San Fernando, Morón
-y El Palomar son todos Buenos Aires, están a menos de un minuto de crepúsculo de
-distancia — y para el resto el bot dice que no lo tiene y lista las que sí.
+La fuente preferida es el [Servicio de Hidrografía Naval](https://www.hidro.gov.ar/observatorio/Astronomia.asp),
+la autoridad argentina en la materia, pero **el SHN publica 34 ciudades y MADHEL
+lista 712 aeródromos**. Un aeródromo que sirve a una de esas ciudades contesta
+por ella — Ezeiza, San Fernando, Morón y El Palomar son todos Buenos Aires,
+están a menos de un minuto de crepúsculo de distancia.
+
+Para todos los demás el dato se **calcula sobre las coordenadas que MADHEL
+publica del aeródromo** (`SunCalculator`, sobre `date_sun_info()` de PHP: el
+algoritmo solar estándar de la NOAA, con las mismas definiciones de la tabla del
+SHN — limbo superior con refracción para salida y puesta, 6° bajo el horizonte
+para el crepúsculo civil). Contrastado contra la propia tabla del SHN para Santa
+Rosa, los cuatro momentos caen dentro del minuto de lo que imprime.
+
+La respuesta siempre dice de dónde salió: un número que calculamos nosotros no
+es la misma afirmación que uno que publicó el Estado. El SHN va primero siempre
+que publique la ciudad, y el cálculo cubre lo que quede afuera: una ciudad que no
+está en la lista, una fecha sin fila, y también una caída del SHN — así la ficha
+no se queda sin sol porque un sitio esté abajo. Lo único que no tiene respuesta
+son los pocos aeródromos que MADHEL lista sin coordenadas.
+
+Ni una fuente ni la otra modelan el relieve: el horizonte es el del mar, y un
+aeródromo metido en un valle pierde el sol antes que cualquiera de las dos.
 
 Una consulta al SHN trae el mes entero y esa tabla está publicada de antemano,
-así que se cachea treinta días: no hay nada que revalidar.
+así que se cachea treinta días: no hay nada que revalidar. El cálculo no se
+cachea — es aritmética, sale más barato que leerla.
 
 **Requiere un worker corriendo.** Sin él, el webhook acepta el mensaje y nadie
 responde nunca:

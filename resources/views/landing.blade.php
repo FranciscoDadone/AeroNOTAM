@@ -183,7 +183,7 @@
       </div>
       <div class="card">
         <h3>Crepúsculo</h3>
-        <p>Salida y puesta del sol, según el Servicio de Hidrografía Naval, para la localidad de cualquier aeródromo del país.</p>
+        <p>Salida y puesta del sol para cualquier aeródromo del país: la tabla del Servicio de Hidrografía Naval donde la publica, calculada sobre las coordenadas del aeródromo donde no.</p>
         <div class="mt-auto pt-5"><span class="rounded-md bg-air-soft px-2.5 py-1 font-mono text-[0.78rem] font-medium text-air">"crepúsculo Santa Rosa"</span></div>
       </div>
       <div class="card">

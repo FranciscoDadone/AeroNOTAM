@@ -134,7 +134,7 @@ class ShnSunService
         }
 
         return new SunTimes(
-            city: $city,
+            place: $city,
             date: $date,
             dawn: $moments['dawn'],
             sunrise: $moments['sunrise'],

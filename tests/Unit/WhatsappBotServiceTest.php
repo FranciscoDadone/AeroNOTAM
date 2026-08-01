@@ -1212,27 +1212,68 @@ it('routes sun questions ahead of the forecast and the alerts', function (string
     'avisame' => ['avisame a que hora atardece en santa rosa'],
 ]);
 
-it('names the localities it has when the message has none', function () {
+/**
+ * Tandil is not one of the SHN's 34 localities. It used to be answered with the
+ * list of the ones that are; now MADHEL's coordinates answer it, and the reply
+ * says the times were computed rather than published.
+ */
+it('computes the sun for a place the SHN does not publish', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
     fakeShnSun();
 
     $reply = bot()->reply('crepusculo tandil')->messages;
 
     expect($reply)->toHaveCount(1)
         ->and($reply[0])
-        ->toContain('Ciudades disponibles')
-        ->toContain('SANTA ROSA')
-        ->toContain('USHUAIA');
+        ->toContain('TANDIL')
+        ->toContain('Crepúsculo vespertino')
+        ->not->toContain('Ciudades disponibles');
+
+    // The SHN publishes no Tandil, so it was never asked.
+    Http::assertNothingSent();
+
+    Carbon::setTestNow();
+});
+
+it('asks for a place when the message names none', function () {
+    fakeShnSun();
+
+    $reply = bot()->reply('a que hora atardece?')->messages;
+
+    expect($reply)->toHaveCount(1)
+        ->and($reply[0])->toContain('Decime de dónde');
 
     Http::assertNothingSent();
 });
 
-it('says so when the SHN cannot be reached', function () {
+/**
+ * The SHN going down is no longer the end of the answer where there are
+ * coordinates to fall back on — so this is the case where there are none, and
+ * the outage is all that is left.
+ */
+it('says so when the SHN cannot be reached and there is nothing to compute from', function () {
     Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
     fakeShnSun(Http::response('Server Error', 500));
+    Airport::where('anac_code', 'OSA')->update(['latitude' => null, 'longitude' => null]);
 
     expect(bot()->reply('crepusculo santa rosa')->messages[0])
         ->toContain('No pude consultar')
         ->toContain('Hidrografía Naval');
+
+    Carbon::setTestNow();
+});
+
+/**
+ * The other half of it: the same outage over an aerodrome we do know the
+ * position of answers anyway, off our own arithmetic.
+ */
+it('computes the sun when the SHN cannot be reached', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
+    fakeShnSun(Http::response('Server Error', 500));
+
+    expect(bot()->reply('crepusculo santa rosa')->messages[0])
+        ->toContain('SANTA ROSA')
+        ->toContain('Puesta del sol: 21:12 UTC (18:12 local)');
 
     Carbon::setTestNow();
 });
@@ -1381,7 +1422,10 @@ it('does not offer a menu when it could not answer', function () {
     fakeTaf(Http::response('Server Error', 500), Http::response('Server Error', 500));
     expect(bot()->reply('taf EZE', PHONE)->menu)->toBeNull();
 
+    // Both sources have to be out of the picture: with coordinates on file the
+    // sun is computed, and an answer that went out carries its menu.
     fakeShnSun(Http::response('Server Error', 500));
+    Airport::where('anac_code', 'OSA')->update(['latitude' => null, 'longitude' => null]);
     expect(bot()->reply('crepusculo santa rosa', PHONE)->menu)->toBeNull();
 
     expect(bot()->reply('metar alta gracia', PHONE)->menu)->toBeNull();
@@ -1464,16 +1508,27 @@ it('answers honestly when a tapped topic has nothing for that aerodrome', functi
     Http::assertNothingSent();
 });
 
-it('names the cities it has when a tapped aerodrome has no sun table', function () {
+/**
+ * Alta Gracia is not one of the SHN's 34 localities, and used to be answered
+ * with a list of the ones that are. MADHEL knows where it is, so the times are
+ * computed from its coordinates instead — and the answer says so, because a
+ * number we worked out is not the same claim as one the SHN published.
+ */
+it('computes the sun for a tapped aerodrome the SHN does not publish', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
     Http::fake();
 
-    $reply = bot()->reply('🌅 Crepúsculo', PHONE, 'ask:crepusculo:AGR')->messages;
+    $reply = implode(' ', bot()->reply('🌅 Crepúsculo', PHONE, 'ask:crepusculo:AGR')->messages);
 
-    expect(implode(' ', $reply))
-        ->toContain('Ciudades disponibles')
-        ->toContain('SANTA ROSA');
+    expect($reply)
+        ->toContain('ALTA GRACIA')
+        ->toContain('Puesta del sol:')
+        ->not->toContain('Ciudades disponibles');
 
+    // Nothing was asked of the SHN: there is no locality to ask it about.
     Http::assertNothingSent();
+
+    Carbon::setTestNow();
 });
 
 /**
@@ -2358,18 +2413,24 @@ it('lists an unpaired runway end on its own', function () {
 |
 | Salida and puesta ride at the foot of the ficha — the one thing in it that
 | does not come off a local table. Which is why every test here is also about
-| what happens when it cannot be had: the ficha answers a question about the
-| place itself and must not be able to fail because a website was down.
+| where it came from: the SHN when it publishes the city, the aerodrome's own
+| coordinates when it does not, and the ficha must not be able to fail because
+| a website was down.
+|
+| The clock is frozen wherever an hour is asserted: the July fixture is served
+| for whatever month is asked, so which of its 31 rows is read depends on the
+| day the suite happens to run.
 |
 */
 
 it('closes the ficha with today Sun', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
     seedSantaRosaFicha();
 
     expect(bot()->reply('osa')->messages[0])
         ->toContain('*Sol de hoy* — _SHN, SANTA ROSA_')
-        ->toContain('• Salida: 11:15 UTC (08:15 local)')
-        ->toContain('• Puesta: 21:31 UTC (18:31 local)');
+        ->toContain('• Salida: 11:30 UTC (08:30 local)')
+        ->toContain('• Puesta: 21:12 UTC (18:12 local)');
 });
 
 /**
@@ -2379,6 +2440,7 @@ it('closes the ficha with today Sun', function () {
  * with the airport across town.
  */
 it('takes the city from the registry for an aerodrome the map never named', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
     fakeShnSun();
     Airport::where('anac_code', 'ELP')->update([
         'city_reference' => 'Santa Rosa',
@@ -2389,18 +2451,44 @@ it('takes the city from the registry for an aerodrome the map never named', func
     expect(bot()->reply('elp')->messages[0])
         ->toContain('EL PAMPERO')
         ->toContain('*Sol de hoy* — _SHN, SANTA ROSA_')
-        ->toContain('• Puesta: 21:31 UTC (18:31 local)');
+        ->toContain('• Puesta: 21:12 UTC (18:12 local)');
 });
 
 /**
  * A city the SHN does not publish is the ordinary case — 34 localities against
- * 712 aerodromes — and it costs nothing: no section, and no request either.
+ * 712 aerodromes — and it is no longer the end of the answer: MADHEL says where
+ * Arrecifes is, so the times are computed there. Still no request, because
+ * there is no locality to ask the SHN about.
  */
-it('says nothing about the sun for a city the SHN does not publish', function () {
+it('computes the ficha sun for a city the SHN does not publish', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
     Http::fake();
 
     Airport::where('anac_code', 'CIF')->update([
         'city_reference' => 'Arrecifes',
+        'latitude' => -34.0725,
+        'longitude' => -60.0836,
+        'details_updated_at' => now(),
+    ]);
+
+    expect(bot()->reply('info cif')->messages[0])
+        ->toContain('*Sol de hoy* — _calculado por coordenadas_')
+        ->toContain('• Puesta: 21:02 UTC (18:02 local)');
+
+    Http::assertNothingSent();
+});
+
+/**
+ * Nothing to compute from and nothing published: the section is simply absent,
+ * which is what the ficha did for every uncovered aerodrome before.
+ */
+it('says nothing about the sun when there are no coordinates either', function () {
+    Http::fake();
+
+    Airport::where('anac_code', 'CIF')->update([
+        'city_reference' => 'Arrecifes',
+        'latitude' => null,
+        'longitude' => null,
         'details_updated_at' => now(),
     ]);
 
@@ -2412,13 +2500,19 @@ it('says nothing about the sun for a city the SHN does not publish', function ()
 /**
  * Stubs merge and the first match wins, so faking the failure before seeding
  * is what makes this the SHN's answer rather than the fixture's.
+ *
+ * An outage used to cost the section. It no longer does — the coordinates are
+ * ours and do not go down — and the attribution changes to say so rather than
+ * passing a computed number off as the SHN's.
  */
 it('still answers the ficha when the SHN cannot be reached', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
     fakeShnSun(Http::response('Server Error', 500));
     seedSantaRosaFicha();
 
     expect(bot()->reply('osa')->messages[0])
-        ->not->toContain('Sol de hoy')
+        ->toContain('*Sol de hoy* — _calculado por coordenadas_')
+        ->toContain('• Puesta: 21:12 UTC (18:12 local)')
         ->toContain('01/19 — 2300 × 30 m')
         ->toContain('Elevación 192 m (630 ft)');
 });
@@ -2478,10 +2572,10 @@ it('does not swallow the questions its own keywords appear inside', function (st
 it('offers the other topics under the ficha', function () {
     seedSantaRosaFicha();
 
-    $menu = bot()->reply('osa', PHONE)->menu;
-
-    expect(buttonIds($menu->button))
-        ->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'ask:taf:SAZR', 'ask:carta:SAZR', 'ask:crepusculo:SAZR']);
+    // The ficha carries the menu's buttons itself rather than following the
+    // answer with a menu of its own — see infoReply().
+    expect(buttonIds(bot()->reply('osa', PHONE)->button))
+        ->toBe(['ask:notam:SAZR', 'ask:metar:SAZR', 'pista:SAZR', 'ask:taf:SAZR', 'ask:carta:SAZR', 'ask:crepusculo:SAZR']);
 });
 
 it('answers a tapped ficha button without any text matching', function () {

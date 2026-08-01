@@ -31,7 +31,7 @@ it('reads a day out of the real SHN markup', function () {
         ->and($times->sunrise->toDateTimeString())->toBe('2026-07-01 11:30:00')
         ->and($times->sunset->toDateTimeString())->toBe('2026-07-01 21:12:00')
         ->and($times->dusk->toDateTimeString())->toBe('2026-07-01 21:40:00')
-        ->and($times->city)->toBe('SANTA ROSA');
+        ->and($times->place)->toBe('SANTA ROSA');
 });
 
 it('reads every day of the month', function () {

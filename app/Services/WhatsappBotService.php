@@ -305,6 +305,7 @@ class WhatsappBotService
         protected TafService $tafService,
         protected TafEnricher $tafEnricher,
         protected ShnSunService $sun,
+        protected SunCalculator $sunCalculator,
         protected SunCityResolver $sunCities,
         protected SmnPronareaService $pronarea,
         protected PronareaFirResolver $pronareaFirs,
@@ -1462,23 +1463,16 @@ class WhatsappBotService
     /**
      * Today's sun over an aerodrome, or null when there is none to be had.
      *
-     * Three ways there is none, and the ficha treats them alike because for the
-     * reader they are the same thing — no times printed: the SHN publishes by
-     * city and covers 34 of them, so most aerodromes bridge to none; a city it
-     * covers can still have no row for today; and the site itself can be down.
-     * Only the last is worth a log, and none of the three is worth failing the
-     * ficha over, which is the whole reason this swallows rather than throws.
+     * Since the calculation backs the SHN up there is almost always one: what
+     * is left is the handful of MADHEL entries with no coordinates published,
+     * and an SHN outage on a city we cannot compute for either. Neither is
+     * worth failing the ficha over, which is why this swallows rather than
+     * throws.
      */
     protected function sunTimesFor(string $indicator): ?SunTimes
     {
-        $city = $this->sunCities->cityFor($indicator);
-
-        if ($city === null) {
-            return null;
-        }
-
         try {
-            return $this->sun->forDate($city, $this->sunToday());
+            return $this->sunFor($this->sunCities->cityFor($indicator), $indicator, $this->sunToday());
         } catch (\Throwable $e) {
             report($e);
 
@@ -1568,17 +1562,17 @@ class WhatsappBotService
      * is answering "what is this place", where the sun is one fact among a
      * dozen rather than the question.
      *
-     * The city is named on the header line because it is not the aerodrome.
-     * The SHN publishes by locality, and Ezeiza's ficha reading "BUENOS AIRES"
-     * is the honest version of a table that never mentioned Ezeiza — the
-     * minute of difference does not matter, but hiding where the number came
-     * from does.
+     * Where the number came from is on the header line. The SHN publishes by
+     * locality, and Ezeiza's ficha reading "SHN, BUENOS AIRES" is the honest
+     * version of a table that never mentioned Ezeiza — the minute of difference
+     * does not matter, but hiding the substitution does. Same reasoning for
+     * saying so when the times were computed here instead of published.
      *
      * @return array<int, string>
      */
     protected function sunLines(SunTimes $times): array
     {
-        $lines = ["*Sol de hoy* — _SHN, {$times->city}_"];
+        $lines = ['*Sol de hoy* — _'.$this->sunSourceLabel($times).'_'];
 
         foreach ([['sunrise', 'Salida', $times->sunrise], ['sunset', 'Puesta', $times->sunset]] as [$moment, $label, $at]) {
             $lines[] = $at === null
@@ -2312,7 +2306,9 @@ class WhatsappBotService
     }
 
     /**
-     * What time the sun does its four things on the day asked, for a city.
+     * What time the sun does its four things on the day asked, for the place
+     * the message names — a city the SHN publishes, or any aerodrome MADHEL
+     * has coordinates for.
      *
      * The day is taken in Argentine official time and not in UTC: at 22:00 in
      * Buenos Aires it is already tomorrow in Greenwich, and "hoy" for whoever is
@@ -2322,25 +2318,31 @@ class WhatsappBotService
     protected function sunReply(string $message, ?string $from): WhatsappReply
     {
         $city = $this->sunCities->matchFromText($message);
+        $indicator = $this->sunAerodrome($message, $city);
 
-        if ($city === null) {
-            return WhatsappReply::of($this->sunCitiesMessage());
+        if ($city === null && $indicator === null) {
+            return WhatsappReply::of($this->sunPlaceMessage());
         }
 
         $today = $this->sunToday();
         $date = $this->resolveSunDate($message, $today);
 
         try {
-            $reply = $this->sunTimesReply($city, $date, $today);
+            $times = $this->sunFor($city, $indicator, $date);
         } catch (\Throwable $e) {
             report($e);
 
             return WhatsappReply::of('No pude consultar la tabla del sol del Servicio de Hidrografía Naval en este momento. Probá de nuevo en unos minutos.');
         }
 
-        $indicator = $this->context->anacCode = $this->sunAerodrome($message, $city);
+        if ($times === null) {
+            return WhatsappReply::of("No tengo la salida y puesta de sol para *{$this->sunPlaceName($city, $indicator)}* en esta fecha.");
+        }
 
-        return $reply->withMenu($this->menuFor('crepusculo', $indicator, $from));
+        $this->context->anacCode = $indicator;
+
+        return $this->formatSunTimes($times, $this->sunDateLabel($date, $today))
+            ->withMenu($this->menuFor('crepusculo', $indicator, $from));
     }
 
     /**
@@ -2349,43 +2351,71 @@ class WhatsappBotService
      */
     protected function sunReplyFor(string $indicator, string $from): WhatsappReply
     {
-        $city = $this->sunCities->cityFor($indicator);
-
-        if ($city === null) {
-            $name = $this->airports->nameFor($indicator) ?? $indicator;
-
-            return WhatsappReply::of($this->sunCitiesMessage(
-                "🌅 No tengo tabla del sol para *{$name}* ({$indicator}): el Servicio de Hidrografía Naval la publica por ciudad, y esa no está en su lista."
-            ));
-        }
-
         $today = $this->sunToday();
 
         try {
-            $reply = $this->sunTimesReply($city, $today, $today);
+            $times = $this->sunFor($this->sunCities->cityFor($indicator), $indicator, $today);
         } catch (\Throwable $e) {
             report($e);
 
             return WhatsappReply::of('No pude consultar la tabla del sol del Servicio de Hidrografía Naval en este momento. Probá de nuevo en unos minutos.');
         }
 
-        return $reply->withMenu($this->menuFor('crepusculo', $indicator, $from));
+        if ($times === null) {
+            $name = $this->airports->nameFor($indicator) ?? $indicator;
+
+            return WhatsappReply::of("🌅 No tengo la salida y puesta de sol para *{$name}* ({$indicator}): el Servicio de Hidrografía Naval no publica su ciudad y MADHEL no publica sus coordenadas, así que no hay de dónde sacarla.");
+        }
+
+        return $this->formatSunTimes($times, $this->sunDateLabel($today, $today))
+            ->withMenu($this->menuFor('crepusculo', $indicator, $from));
     }
 
     /**
-     * The sun over a city on one date, formatted — or a plain answer when the
-     * SHN simply has no row for it. Shared by the text path and a tapped
-     * button, which never have anything left to try beyond this call.
+     * The sun over a place on one date, from whichever source can answer for
+     * it. Shared by the ficha, the text path and a tapped button.
+     *
+     * The SHN goes first wherever it publishes the city: it is the authority,
+     * and a number we computed does not get to overrule a number the State
+     * published. The calculation picks up everything it leaves — an aerodrome
+     * whose city is not among its 34, a date it has no row for, and its own
+     * outages, which are the one case worth a log even though the answer still
+     * goes out. Null only when neither source has anything: no city and no
+     * coordinates.
      */
-    protected function sunTimesReply(string $city, CarbonImmutable $date, CarbonImmutable $today): WhatsappReply
+    protected function sunFor(?string $city, ?string $indicator, CarbonImmutable $date): ?SunTimes
     {
-        $times = $this->sun->forDate($city, $date);
-
-        if ($times === null) {
-            return WhatsappReply::of("El SHN no publica datos del sol para *{$city}* en esta fecha.");
+        if ($city === null) {
+            return $this->calculatedSun($indicator, $date);
         }
 
-        return $this->formatSunTimes($times, $this->sunDateLabel($date, $today));
+        try {
+            return $this->sun->forDate($city, $date) ?? $this->calculatedSun($indicator, $date);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return $this->calculatedSun($indicator, $date) ?? throw $e;
+        }
+    }
+
+    /**
+     * The sun worked out from an aerodrome's own coordinates, or null when
+     * there is no aerodrome or MADHEL never published where it is.
+     */
+    protected function calculatedSun(?string $indicator, CarbonImmutable $date): ?SunTimes
+    {
+        $airport = $indicator === null ? null : $this->airports->find($indicator);
+
+        if ($airport?->latitude === null || $airport->longitude === null) {
+            return null;
+        }
+
+        return $this->sunCalculator->forCoordinates(
+            $airport->name,
+            $airport->latitude,
+            $airport->longitude,
+            $date,
+        );
     }
 
     protected function sunToday(): CarbonImmutable
@@ -2397,19 +2427,33 @@ class WhatsappBotService
      * The aerodrome a sun question named, when it named one at all.
      *
      * "crepusculo SAZR" carries an aerodrome; "crepusculo santa rosa" happens
-     * to as well, because Santa Rosa has one. A city with several — Buenos
-     * Aires has five — or none the resolver is confident about leaves nothing
-     * to offer NOTAMs for, and the answer simply goes out without a menu. The
-     * city has to match too: "crepusculo base esperanza" resolves the
-     * Antarctic locality by alias while the aerodrome matcher lands on the
-     * Esperanza in Santa Fe, and offering that one's NOTAMs under an Antarctic
-     * sunset would be wrong by 3.500 km.
+     * to as well, because Santa Rosa has one. It is both the place the answer
+     * is computed for when the SHN publishes no city, and the aerodrome the
+     * follow-up menu offers NOTAMs for.
+     *
+     * When the SHN does publish a city, the aerodrome has to belong to it:
+     * "crepusculo base esperanza" resolves the Antarctic locality by alias
+     * while the aerodrome matcher lands on the Esperanza in Santa Fe, and
+     * neither computing that one's sunset nor offering its NOTAMs under an
+     * Antarctic answer would be right — they are 3.500 km apart.
      */
-    protected function sunAerodrome(string $message, string $city): ?string
+    protected function sunAerodrome(string $message, ?string $city): ?string
     {
         $code = $this->airports->matchFromText($message);
 
-        return $code !== null && $this->sunCities->cityFor($code) === $city ? $code : null;
+        if ($code === null) {
+            return null;
+        }
+
+        return $city === null || $this->sunCities->cityFor($code) === $city ? $code : null;
+    }
+
+    /**
+     * What to call the place in an answer that has no times to print.
+     */
+    protected function sunPlaceName(?string $city, ?string $indicator): string
+    {
+        return $city ?? ($indicator === null ? 'ese lugar' : ($this->airports->nameFor($indicator) ?? $indicator));
     }
 
     /**
@@ -2503,7 +2547,7 @@ class WhatsappBotService
      */
     protected function formatSunTimes(SunTimes $times, string $dateLabel): WhatsappReply
     {
-        $lines = ["🌅 *{$times->city}* — {$dateLabel}", ''];
+        $lines = ["🌅 *{$times->place}* — {$dateLabel}", ''];
 
         $moments = [
             ['dawn', 'Crepúsculo matutino', $times->dawn],
@@ -2523,16 +2567,40 @@ class WhatsappBotService
                 );
         }
 
-        $lines[] = '';
-        $lines[] = '_Fuente: Servicio de Hidrografía Naval_';
-
         return WhatsappReply::of(implode("\n", $lines));
     }
 
     /**
+     * Who produced the times, in full, for the bottom of a crepúsculo answer.
+     *
+     * The computed one names the method as well as the source. "Crepúsculo
+     * civil" is the definition the rules are written against and the one the
+     * SHN's own table uses, so saying it out loud is what makes the two answers
+     * comparable rather than merely similar.
+     */
+    protected function sunSourceCredit(SunTimes $times): string
+    {
+        return $times->isCalculated()
+            ? 'Calculado sobre las coordenadas del aeródromo, el SHN no publica esta localidad.'
+            : 'Fuente: Servicio de Hidrografía Naval';
+    }
+
+    /**
+     * The same attribution compressed to a ficha's header line, where the sun
+     * is one section among a dozen.
+     */
+    protected function sunSourceLabel(SunTimes $times): string
+    {
+        return $times->isCalculated()
+            ? 'calculado por coordenadas'
+            : "SHN, {$times->place}";
+    }
+
+    /**
      * The SHN prints a symbol instead of an hour on the days a high-latitude
-     * place has no sunrise, no sunset, or no real night. Saying which one it is
-     * beats leaving a blank the reader has to interpret.
+     * place has no sunrise, no sunset, or no real night, and the calculation
+     * reports the same three cases the same way. Saying which one it is beats
+     * leaving a blank the reader has to interpret.
      */
     protected function sunSymbolMeaning(?string $symbol): string
     {
@@ -2545,18 +2613,18 @@ class WhatsappBotService
     }
 
     /**
-     * The SHN publishes by city, not by aerodrome, so there is no honest way to
-     * answer for a place that is not on its list — naming the ones that are is
-     * the whole answer.
+     * Asked for a sunset without saying where.
+     *
+     * Not a list of the SHN's 34 localities any more: the answer now reaches
+     * any aerodrome MADHEL places on the map, so listing the published cities
+     * would understate by an order of magnitude what can be asked for. What is
+     * missing is a place, and that is what this says.
      */
-    protected function sunCitiesMessage(?string $lead = null): string
+    protected function sunPlaceMessage(): string
     {
-        $lead ??= '🌅 La salida y puesta de sol la publica el Servicio de Hidrografía Naval por ciudad, y no encontré ninguna en tu mensaje.';
-
-        return "{$lead}\n\n"
-            .'Probá con: _"crepusculo santa rosa"_.'
+        return '🌅 Decime de dónde y te paso la salida y puesta de sol: una ciudad, o el nombre o el código del aeródromo.'
             ."\n\n"
-            .'*Ciudades disponibles:* '.implode(', ', $this->sunCities->cities()).'.';
+            .'Probá con: _"crepusculo santa rosa"_, _"crepusculo SAZR"_ o _"a qué hora anochece en Tandil"_.';
     }
 
     /**
@@ -2887,7 +2955,7 @@ class WhatsappBotService
             ."\n\n"
             .'También puedo avisarte cuando el clima cambie: _"avisame EZE"_. Con _"mis alertas"_ ves las que tenés activas.'
             ."\n\n"
-            .'Y para saber hasta qué hora hay luz, pedime la salida y puesta de sol: _"crepusculo santa rosa"_ (el SHN lo publica por ciudad).';
+            .'Y para saber hasta qué hora hay luz, pedime la salida y puesta de sol: _"crepusculo santa rosa"_ o _"crepusculo SAZR"_, para cualquier aeródromo.';
     }
 
     /**

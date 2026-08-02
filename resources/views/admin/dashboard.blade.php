@@ -8,14 +8,14 @@
 
 @section('content')
 
-<div class="mb-8 flex flex-wrap items-baseline justify-between gap-3">
+<div class="mb-6 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 sm:mb-8">
   <h1 class="sec-title">Métricas</h1>
   <p class="text-[0.9rem] text-dim">
     Horarios en {{ config('app.display_timezone') }} · actualizado {{ now()->setTimezone(config('app.display_timezone'))->format('d/m H:i') }}
   </p>
 </div>
 
-<section class="mb-10 grid grid-cols-2 gap-4 lg:grid-cols-4">
+<section class="mb-8 grid grid-cols-2 gap-3 sm:gap-4 lg:mb-10 lg:grid-cols-4">
   @include('admin.partials.stat', [
       'label' => 'Mensajes hoy',
       'value' => number_format($totals['today'], 0, ',', '.'),
@@ -38,22 +38,44 @@
   ])
 </section>
 
-<section class="mb-6 grid gap-6 lg:grid-cols-[1.6fr_1fr]">
-  <div class="rounded-xl border border-line bg-ink p-6">
+<section class="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+  <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
     <h2 class="mb-1 text-[1.05rem] font-semibold tracking-[-0.01em]">Mensajes por día</h2>
     <p class="mb-6 text-[0.9rem] text-muted">Últimas dos semanas.</p>
     @include('admin.partials.columns', ['items' => $perDay, 'height' => 170, 'everyLabel' => 2])
   </div>
 
-  <div class="rounded-xl border border-line bg-ink p-6">
+  <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
     <h2 class="mb-1 text-[1.05rem] font-semibold tracking-[-0.01em]">Actividad por hora</h2>
     <p class="mb-6 text-[0.9rem] text-muted">Hora local, últimos 30 días.</p>
     @include('admin.partials.columns', ['items' => $perHour, 'height' => 170, 'everyLabel' => 4])
   </div>
 </section>
 
-<section class="mb-6 grid gap-6 lg:grid-cols-[1.6fr_1fr]">
-  <div class="rounded-xl border border-line bg-ink p-6">
+<section class="mb-6 rounded-xl border border-line bg-ink p-5 sm:p-6">
+  <div class="mb-1 flex flex-wrap items-baseline justify-between gap-4">
+    <h2 class="text-[1.05rem] font-semibold tracking-[-0.01em]">Personas por día</h2>
+    <div class="flex items-center gap-4 text-[0.85rem] text-muted">
+      <span class="flex items-center gap-2"><span class="size-2.5 rounded-sm bg-air"></span>Nuevas</span>
+      <span class="flex items-center gap-2"><span class="size-2.5 rounded-sm bg-air/30"></span>Ya conocidas</span>
+    </div>
+  </div>
+  <p class="mb-6 text-[0.9rem] text-muted">
+    Cuántas personas distintas escribieron cada día y cuántas de ellas lo hacían por primera vez.
+    Últimas dos semanas.
+  </p>
+
+  @include('admin.partials.columns-split', [
+      'items' => $peoplePerDay,
+      'height' => 170,
+      'everyLabel' => 2,
+      'totalLabel' => 'personas',
+      'partLabel' => 'nuevas',
+  ])
+</section>
+
+<section class="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+  <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
     <div class="mb-1 flex items-baseline justify-between gap-4">
       <h2 class="text-[1.05rem] font-semibold tracking-[-0.01em]">Consultas por aeródromo</h2>
       <a href="{{ route('admin.messages.index') }}" class="text-[0.85rem] text-air hover:underline">Ver mensajes</a>
@@ -70,8 +92,8 @@
     ])
   </div>
 
-  <div class="grid content-start gap-6">
-    <div class="rounded-xl border border-line bg-ink p-6">
+  <div class="grid grid-cols-1 content-start gap-6">
+    <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
       <h2 class="mb-1 text-[1.05rem] font-semibold tracking-[-0.01em]">Esta semana</h2>
       <p class="mb-6 text-[0.9rem] text-muted">Los cinco más consultados en 7 días.</p>
 
@@ -85,7 +107,7 @@
       ])
     </div>
 
-    <div class="rounded-xl border border-line bg-ink p-6">
+    <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
       <h2 class="mb-1 text-[1.05rem] font-semibold tracking-[-0.01em]">Qué le piden</h2>
       <p class="mb-6 text-[0.9rem] text-muted">Tema al que el bot enrutó cada mensaje.</p>
 
@@ -97,8 +119,8 @@
   </div>
 </section>
 
-<section class="mb-6 grid gap-6 lg:grid-cols-2">
-  <div class="rounded-xl border border-line bg-ink p-6">
+<section class="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+  <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
     <div class="mb-1 flex items-baseline justify-between gap-4">
       <h2 class="text-[1.05rem] font-semibold tracking-[-0.01em]">Sin aeródromo identificado</h2>
       <a href="{{ route('admin.messages.index', ['unmatched' => 1]) }}" class="text-[0.85rem] text-air hover:underline">Ver todos</a>
@@ -118,7 +140,7 @@
     @endforelse
   </div>
 
-  <div class="rounded-xl border border-line bg-ink p-6">
+  <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
     <h2 class="mb-1 text-[1.05rem] font-semibold tracking-[-0.01em]">Alertas METAR activas</h2>
     <p class="mb-5 text-[0.9rem] text-muted">
       {{ $subscriptions['active'] }} vigentes de {{ $subscriptions['people'] }} personas ·
@@ -136,15 +158,15 @@
   </div>
 </section>
 
-<section class="mb-6 grid gap-6 lg:grid-cols-2">
-  <div class="rounded-xl border border-line bg-ink p-6">
+<section class="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+  <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
     <h2 class="mb-1 text-[1.05rem] font-semibold tracking-[-0.01em]">Quiénes escriben más</h2>
     <p class="mb-5 text-[0.9rem] text-muted">Por cantidad de mensajes, histórico.</p>
 
     @forelse ($topUsers as $user)
       <a href="{{ route('admin.messages.index', ['phone' => $user['phone']]) }}"
          class="flex items-baseline justify-between gap-3 border-b border-line-soft py-2.5 last:border-0 hover:text-air">
-        <span class="truncate">
+        <span class="min-w-0 truncate">
           {{ $user['name'] ?: str($user['phone'])->after('whatsapp:') }}
           @if ($user['name'])
             <span class="font-mono text-[0.8rem] text-dim">{{ str($user['phone'])->after('whatsapp:') }}</span>
@@ -160,7 +182,7 @@
     @endforelse
   </div>
 
-  <div class="rounded-xl border border-line bg-ink p-6">
+  <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
     <h2 class="mb-1 text-[1.05rem] font-semibold tracking-[-0.01em]">Entrega</h2>
     <p class="mb-5 text-[0.9rem] text-muted">Cómo terminaron los mensajes de los últimos 7 días.</p>
 
@@ -194,7 +216,7 @@
   </div>
 </section>
 
-<section class="rounded-xl border border-line bg-ink p-6">
+<section class="rounded-xl border border-line bg-ink p-5 sm:p-6">
   <div class="mb-5 flex items-baseline justify-between gap-4">
     <h2 class="text-[1.05rem] font-semibold tracking-[-0.01em]">Últimos mensajes</h2>
     <a href="{{ route('admin.messages.index') }}" class="text-[0.85rem] text-air hover:underline">Ver el log completo</a>

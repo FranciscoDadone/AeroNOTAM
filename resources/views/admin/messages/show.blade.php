@@ -11,11 +11,11 @@
   @include('admin.partials.status', ['status' => $message->status])
 </div>
 
-<section class="mb-6 grid gap-6 lg:grid-cols-[1.6fr_1fr]">
-  <div class="grid content-start gap-4">
-    <div class="rounded-xl border border-line bg-ink p-6">
+<section class="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+  <div class="grid min-w-0 grid-cols-1 content-start gap-4">
+    <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
       <div class="eyebrow mb-3">Recibido · {{ $message->localTime()->format('d/m/Y H:i:s') }}</div>
-      <p class="whitespace-pre-wrap">{{ $message->body ?: '(sin texto)' }}</p>
+      <p class="break-words whitespace-pre-wrap">{{ $message->body ?: '(sin texto)' }}</p>
 
       @if ($message->button_payload)
         <p class="mt-4 text-[0.9rem] text-muted">
@@ -31,7 +31,7 @@
       </div>
     @endif
 
-    <div class="rounded-xl border border-line bg-ink p-6">
+    <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
       <div class="eyebrow mb-4">
         Respuesta del bot
         @if ($message->reply)
@@ -44,7 +44,7 @@
           @if (count($message->reply) > 1)
             <div class="mb-2 font-mono text-[0.75rem] text-dim">{{ $i + 1 }}/{{ count($message->reply) }}</div>
           @endif
-          <p class="text-[0.95rem] leading-relaxed whitespace-pre-wrap">{{ $part }}</p>
+          <p class="text-[0.95rem] leading-relaxed break-words whitespace-pre-wrap">{{ $part }}</p>
         </div>
       @empty
         <p class="text-[0.9rem] text-dim">
@@ -54,8 +54,8 @@
     </div>
   </div>
 
-  <div class="grid content-start gap-4">
-    <div class="rounded-xl border border-line bg-ink p-6">
+  <div class="grid min-w-0 grid-cols-1 content-start gap-4">
+    <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
       <div class="eyebrow mb-4">Qué entendió el bot</div>
       <dl class="grid gap-3 text-[0.92rem]">
         <div class="flex justify-between gap-3">
@@ -85,7 +85,7 @@
       </dl>
     </div>
 
-    <div class="rounded-xl border border-line bg-ink p-6">
+    <div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
       <div class="eyebrow mb-4">Remitente</div>
       <dl class="grid gap-3 text-[0.92rem]">
         <div class="flex justify-between gap-3">
@@ -98,7 +98,9 @@
         </div>
         <div class="flex justify-between gap-3">
           <dt class="text-muted">SID</dt>
-          <dd class="font-mono text-[0.8rem] text-dim">{{ $message->message_sid ?: '—' }}</dd>
+          {{-- El SID de Meta es una sola palabra de 60 caracteres: sin cortarla
+               estira la ficha entera fuera de la pantalla del celular. --}}
+          <dd class="font-mono text-[0.8rem] break-all text-dim">{{ $message->message_sid ?: '—' }}</dd>
         </div>
       </dl>
 
@@ -108,7 +110,7 @@
   </div>
 </section>
 
-<section class="rounded-xl border border-line bg-ink p-6">
+<section class="rounded-xl border border-line bg-ink p-5 sm:p-6">
   <h2 class="mb-1 text-[1.05rem] font-semibold tracking-[-0.01em]">Resto de la conversación</h2>
   <p class="mb-5 text-[0.9rem] text-muted">Los últimos mensajes de este mismo número.</p>
 

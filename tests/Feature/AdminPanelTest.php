@@ -2,6 +2,8 @@
 
 use App\Models\User;
 use App\Models\WhatsappMessage;
+use App\Support\AdminMetrics;
+use Illuminate\Support\Carbon;
 
 function admin(): User
 {
@@ -61,8 +63,42 @@ it('shows the metrics dashboard', function () {
         ->get('/admin')
         ->assertOk()
         ->assertSee('Métricas')
+        ->assertSee('Personas por día')
         ->assertSee('EZE')
         ->assertSee('hola, cómo andás?', false);
+});
+
+/**
+ * The two series the "Personas por día" chart stacks: someone who wrote before
+ * the window counts as active but never as new, and three messages from the
+ * same phone are still one person.
+ */
+it('counts distinct people per day and separates the first-timers', function () {
+    $tz = config('app.display_timezone');
+    $today = Carbon::now($tz)->setTime(10, 0);
+
+    WhatsappMessage::factory()->count(3)->create([
+        'phone' => 'whatsapp:+5491111111111',
+        'created_at' => $today,
+    ]);
+    WhatsappMessage::factory()->create([
+        'phone' => 'whatsapp:+5492222222222',
+        'created_at' => $today->copy()->subDays(20),
+    ]);
+    WhatsappMessage::factory()->create([
+        'phone' => 'whatsapp:+5492222222222',
+        'created_at' => $today,
+    ]);
+
+    $days = app(AdminMetrics::class)->peoplePerDay(14);
+
+    expect($days)->toHaveCount(14)
+        ->and($days->last())->toMatchArray([
+            'date' => $today->toDateString(),
+            'count' => 2,
+            'new' => 1,
+        ])
+        ->and($days->first()['count'])->toBe(0);
 });
 
 it('lists incoming messages with the sender name and the bot reply', function () {

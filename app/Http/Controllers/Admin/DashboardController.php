@@ -14,6 +14,7 @@ class DashboardController extends Controller
         return view('admin.dashboard', [
             'totals' => $metrics->totals(),
             'perDay' => $metrics->perDay(14),
+            'peoplePerDay' => $metrics->peoplePerDay(14),
             'perHour' => $metrics->perHour(30),
             'topAirports' => $metrics->topAirports(12),
             'airportsWeek' => $metrics->topAirports(5, 7),

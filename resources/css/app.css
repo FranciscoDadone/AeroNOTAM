@@ -9,6 +9,10 @@
  * que los bordes sean visibles en vez de insinuados.
  */
 @theme {
+    /* Los celulares angostos (360 px y menos) son un caso propio en el panel:
+       la barra superior deja de entrar antes de que sirva de algo `sm`. */
+    --breakpoint-xs: 25rem;
+
     --color-ink: #ffffff;
     --color-panel: #f7f9fb;
     --color-panel-2: #eef3f8;

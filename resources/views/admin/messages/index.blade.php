@@ -14,19 +14,19 @@
 <form method="GET" action="{{ route('admin.messages.index') }}"
       class="mb-6 grid gap-3 rounded-xl border border-line bg-ink p-4 md:grid-cols-[1.5fr_1fr_1fr_1fr_1fr_auto]">
   <input type="search" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Buscar en texto o respuesta"
-         class="rounded-lg border border-line bg-ink px-3 py-2 text-[0.92rem] outline-none focus:border-air">
+         class="w-full min-w-0 rounded-lg border border-line bg-ink px-3 py-2 text-[0.92rem] outline-none focus:border-air">
 
   <input type="search" name="phone" value="{{ $filters['phone'] ?? '' }}" placeholder="Teléfono"
-         class="rounded-lg border border-line bg-ink px-3 py-2 text-[0.92rem] outline-none focus:border-air">
+         class="w-full min-w-0 rounded-lg border border-line bg-ink px-3 py-2 text-[0.92rem] outline-none focus:border-air">
 
-  <select name="airport" class="rounded-lg border border-line bg-ink px-3 py-2 text-[0.92rem] outline-none focus:border-air">
+  <select name="airport" class="w-full min-w-0 rounded-lg border border-line bg-ink px-3 py-2 text-[0.92rem] outline-none focus:border-air">
     <option value="">Todos los aeródromos</option>
     @foreach ($airports as $code => $name)
       <option value="{{ $code }}" @selected(($filters['airport'] ?? null) === $code)>{{ $code }} · {{ str($name)->limit(28) }}</option>
     @endforeach
   </select>
 
-  <select name="topic" class="rounded-lg border border-line bg-ink px-3 py-2 text-[0.92rem] outline-none focus:border-air">
+  <select name="topic" class="w-full min-w-0 rounded-lg border border-line bg-ink px-3 py-2 text-[0.92rem] outline-none focus:border-air">
     <option value="">Todos los temas</option>
     @foreach ($topics as $topic)
       <option value="{{ $topic }}" @selected(($filters['topic'] ?? null) === $topic)>
@@ -35,7 +35,7 @@
     @endforeach
   </select>
 
-  <select name="status" class="rounded-lg border border-line bg-ink px-3 py-2 text-[0.92rem] outline-none focus:border-air">
+  <select name="status" class="w-full min-w-0 rounded-lg border border-line bg-ink px-3 py-2 text-[0.92rem] outline-none focus:border-air">
     <option value="">Cualquier estado</option>
     <option value="answered" @selected(($filters['status'] ?? null) === 'answered')>Respondido</option>
     <option value="failed" @selected(($filters['status'] ?? null) === 'failed')>Falló</option>
@@ -60,7 +60,7 @@
   @endif
 </form>
 
-<div class="rounded-xl border border-line bg-ink p-6">
+<div class="rounded-xl border border-line bg-ink p-5 sm:p-6">
   @include('admin.partials.messages-table', ['messages' => $messages])
 </div>
 

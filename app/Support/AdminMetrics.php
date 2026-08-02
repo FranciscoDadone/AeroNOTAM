@@ -71,6 +71,46 @@ class AdminMetrics
     }
 
     /**
+     * People per calendar day: how many distinct phones wrote, and how many of
+     * those were writing for the first time ever. "Nuevas" is a subset of the
+     * total, which is why the chart draws it inside the same column instead of
+     * beside it.
+     *
+     * @return Collection<int, array{label: string, date: string, count: int, new: int}>
+     */
+    public function peoplePerDay(int $days = 14): Collection
+    {
+        $since = $this->startOfDay($days - 1);
+
+        $active = WhatsappMessage::query()
+            ->since($since)
+            ->get(['phone', 'created_at'])
+            ->groupBy(fn (WhatsappMessage $m) => $m->created_at->setTimezone($this->timezone)->toDateString())
+            ->map(fn (Collection $day) => $day->unique('phone')->count());
+
+        $firsts = WhatsappMessage::query()
+            ->groupBy('phone')
+            ->select('phone', DB::raw('min(created_at) as first_at'));
+
+        $newcomers = DB::query()
+            ->fromSub($firsts, 'firsts')
+            ->where('first_at', '>=', $since->toDateTimeString())
+            ->pluck('first_at')
+            ->countBy(fn ($at) => Carbon::parse((string) $at, 'UTC')->setTimezone($this->timezone)->toDateString());
+
+        return collect(range($days - 1, 0))->map(function (int $ago) use ($active, $newcomers) {
+            $day = Carbon::now($this->timezone)->subDays($ago);
+
+            return [
+                'label' => $day->format('d/m'),
+                'date' => $day->toDateString(),
+                'count' => (int) $active->get($day->toDateString(), 0),
+                'new' => (int) $newcomers->get($day->toDateString(), 0),
+            ];
+        });
+    }
+
+    /**
      * When people write, by local hour. Tells us when a deploy is cheapest and
      * whether the alert rounds land while anyone is awake.
      *

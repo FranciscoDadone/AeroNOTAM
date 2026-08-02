@@ -11,13 +11,13 @@
 <body class="bg-panel">
 
 <nav class="border-b border-line bg-ink">
-  <div class="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between gap-6 px-6">
-    <div class="flex items-center gap-7">
+  <div class="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between gap-4 px-4 sm:gap-6 sm:px-6">
+    <div class="flex items-center gap-4 sm:gap-7">
       <a href="{{ route('admin.dashboard') }}" class="flex items-center gap-2.5 font-semibold tracking-[-0.02em]">
-        <img src="/images/flybot-logo-128.webp" alt="" width="32" height="32" class="size-8">
-        Panel
+        <img src="/images/flybot-logo-128.webp" alt="" width="32" height="32" class="size-8 shrink-0">
+        <span class="hidden xs:inline">Panel</span>
       </a>
-      <div class="flex gap-6 text-[0.95rem] text-muted">
+      <div class="flex gap-4 text-[0.95rem] text-muted sm:gap-6">
         <a href="{{ route('admin.dashboard') }}"
            class="{{ request()->routeIs('admin.dashboard') ? 'font-medium text-air' : 'hover:text-body' }}">Métricas</a>
         <a href="{{ route('admin.messages.index') }}"
@@ -27,15 +27,15 @@
 
     <form method="POST" action="{{ route('admin.logout') }}" class="flex items-center gap-4">
       @csrf
-      <span class="hidden text-[0.9rem] text-dim sm:inline">{{ auth()->user()?->email }}</span>
-      <button type="submit" class="rounded-lg border border-line px-3 py-1.5 text-[0.9rem] text-muted hover:border-air/45 hover:text-body">
+      <span class="hidden text-[0.9rem] text-dim lg:inline">{{ auth()->user()?->email }}</span>
+      <button type="submit" class="shrink-0 rounded-lg border border-line px-3 py-1.5 text-[0.9rem] text-muted hover:border-air/45 hover:text-body">
         Salir
       </button>
     </form>
   </div>
 </nav>
 
-<main class="mx-auto w-full max-w-[1200px] px-6 py-8">
+<main class="mx-auto w-full max-w-[1200px] px-4 py-6 sm:px-6 sm:py-8">
   @yield('content')
 </main>
 
